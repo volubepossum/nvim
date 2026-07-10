@@ -233,7 +233,7 @@ do
   vim.keymap.set('n', '<C-l>', '<C-w><C-l>', { desc = 'Move focus to the right window' })
   vim.keymap.set('n', '<C-j>', '<C-w><C-j>', { desc = 'Move focus to the lower window' })
   vim.keymap.set('n', '<C-k>', '<C-w><C-k>', { desc = 'Move focus to the upper window' })
-
+  vim.keymap.set('n', '<leader>te', '<cmd>Neotree toggle<cr>', { desc = '[T]oggle [E]xplorer' })
   -- NOTE: Some terminals have colliding keymaps or are not able to send distinct keycodes
   -- vim.keymap.set("n", "<C-S-h>", "<C-w>H", { desc = "Move window to the left" })
   -- vim.keymap.set("n", "<C-S-l>", "<C-w>L", { desc = "Move window to the right" })
@@ -499,17 +499,6 @@ do
 
   -- NOTE: You can install multiple plugins at once
   vim.pack.add(telescope_plugins)
-  vim.pack.add({
-    {
-      src = 'https://github.com/nvim-neo-tree/neo-tree.nvim',
-      version = vim.version.range('3')
-    },
-    -- dependencies
-    "https://github.com/nvim-lua/plenary.nvim",
-    "https://github.com/MunifTanjim/nui.nvim",
-    -- optional, but recommended
-    "https://github.com/nvim-tree/nvim-web-devicons",
-  })
 
   -- See `:help telescope` and `:help telescope.setup()`
   require('telescope').setup {
@@ -1029,7 +1018,7 @@ do
   -- require 'kickstart.plugins.indent_line'
   require 'kickstart.plugins.lint'
   -- require 'kickstart.plugins.autopairs'
-  -- require 'kickstart.plugins.neo-tree'
+  require 'kickstart.plugins.neo-tree'
   -- require 'kickstart.plugins.gitsigns' -- adds gitsigns recommended keymaps
 
   -- NOTE: You can add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
