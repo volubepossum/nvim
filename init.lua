@@ -376,6 +376,17 @@ do
     },
   }
 
+   vim.pack.add {
+    gh 'NeogitOrg/neogit',
+    -- Dependencies
+    gh 'nvim-telescope/telescope.nvim',
+    gh 'nvim-lua/plenary.nvim',
+    gh 'sindrets/diffview.nvim',
+  }
+  require('neogit').setup {}
+
+  vim.keymap.set('n', '<leader>gs', '<cmd>Neogit<cr>', { desc = '[G]it [S]tatus' })
+
   -- [[ Colorscheme ]]
   -- You can easily change to a different colorscheme.
   -- Change the name of the colorscheme plugin below, and then
@@ -488,6 +499,17 @@ do
 
   -- NOTE: You can install multiple plugins at once
   vim.pack.add(telescope_plugins)
+  vim.pack.add({
+    {
+      src = 'https://github.com/nvim-neo-tree/neo-tree.nvim',
+      version = vim.version.range('3')
+    },
+    -- dependencies
+    "https://github.com/nvim-lua/plenary.nvim",
+    "https://github.com/MunifTanjim/nui.nvim",
+    -- optional, but recommended
+    "https://github.com/nvim-tree/nvim-web-devicons",
+  })
 
   -- See `:help telescope` and `:help telescope.setup()`
   require('telescope').setup {
@@ -696,6 +718,7 @@ do
     -- gopls = {},
     -- pyright = {},
     -- rust_analyzer = {},
+    verible = {},
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
     --    https://github.com/pmizio/typescript-tools.nvim
@@ -802,10 +825,46 @@ do
       --
       -- You can use 'stop_after_first' to run the first available formatter from the list
       -- javascript = { "prettierd", "prettier", stop_after_first = true },
+      verilog = { 'verible' },
+      systemverilog = { 'verible' },
     },
   }
 
   vim.keymap.set({ 'n', 'v' }, '<leader>f', function() require('conform').format { async = true } end, { desc = '[F]ormat buffer' })
+  -- [[ Linting ]]
+  vim.pack.add { gh 'mfussenegger/nvim-lint' }
+  local lint = require 'lint'
+
+  -- Create custom verible linter
+  lint.linters.verible = {
+    cmd = 'verible-verilog-lint',
+    stdin = false,
+    args = { '--waiver', '/dev/null' },
+    parser = function(output)
+      local diagnostics = {}
+      for line in vim.gsplit(output, '\n') do
+        local col, message = line:match '^.-:(%d+):(.*)$'
+        if col and message then
+          table.insert(diagnostics, {
+            lnum = 0,
+            col = tonumber(col),
+            message = message,
+            severity = vim.diagnostic.severity.WARN,
+          })
+        end
+      end
+      return diagnostics
+    end,
+  }
+
+  lint.linters_by_ft = {
+    verilog = { 'verible' },
+    systemverilog = { 'verible' },
+  }
+
+  vim.api.nvim_create_autocmd({ 'BufWritePost', 'BufReadPost' }, {
+    callback = function() lint.try_lint() end,
+  })
 end
 
 -- ============================================================
@@ -968,7 +1027,7 @@ do
   --
   -- require 'kickstart.plugins.debug'
   -- require 'kickstart.plugins.indent_line'
-  -- require 'kickstart.plugins.lint'
+  require 'kickstart.plugins.lint'
   -- require 'kickstart.plugins.autopairs'
   -- require 'kickstart.plugins.neo-tree'
   -- require 'kickstart.plugins.gitsigns' -- adds gitsigns recommended keymaps
