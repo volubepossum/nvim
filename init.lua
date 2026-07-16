@@ -397,7 +397,7 @@ do
   ---@diagnostic disable-next-line: missing-fields
   require('tokyonight').setup {
     styles = {
-      comments = { italic = false }, -- Disable italics in comments
+      comments = { italic = true }, -- Disable italics in comments
     },
   }
 
@@ -456,6 +456,24 @@ do
   ---@diagnostic disable-next-line: duplicate-set-field
   statusline.section_location = function() return '%2l:%-2v' end
 
+
+-- VimTeX configuration (using vim variables, not Lua setup)
+vim.g.vimtex_view_method = 'zathura'
+
+vim.g.vimtex_compiler_method = 'generic'
+vim.g.vimtex_compiler_generic = {
+  command = 'pdflatex',
+  options = {
+    '--interaction=nonstopmode',
+    '--synctex=1',
+    '--output-directory=build'
+  },
+}
+
+vim.keymap.set('n', '<leader>ll', '<cmd>VimtexCompile<cr>', { desc = '[L]aTeX [L]compile' })
+vim.keymap.set('n', '<leader>lv', '<cmd>VimtexView<cr>', { desc = '[L]aTeX [V]iew' })
+vim.keymap.set('n', '<leader>lc', '<cmd>VimtexClean<cr>', { desc = '[L]aTeX [C]lean' })
+vim.keymap.set('n', '<leader>le', '<cmd>VimtexErrors<cr>', { desc = '[L]atex [E]rrors' })
   -- ... and there is more!
   --  Check out: https://github.com/nvim-mini/mini.nvim
 end
@@ -708,6 +726,7 @@ do
     -- pyright = {},
     -- rust_analyzer = {},
     verible = {},
+    texlab = {},
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
     --    https://github.com/pmizio/typescript-tools.nvim
@@ -715,12 +734,12 @@ do
     -- But for many setups, the LSP (`ts_ls`) will work just fine
     -- ts_ls = {},
 
-    stylua = {}, -- Used to format Lua code
+    -- stylua = {}, -- Used to format Lua code
 
     -- Special Lua Config, as recommended by neovim help docs
     lua_ls = {
       on_init = function(client)
-        client.server_capabilities.documentFormattingProvider = false -- Disable formatting (formatting is done by stylua)
+        client.server_capabilities.documentFormattingProvider = false 
 
         if client.workspace_folders then
           local path = client.workspace_folders[1].name
@@ -746,7 +765,7 @@ do
       ---@type lspconfig.settings.lua_ls
       settings = {
         Lua = {
-          format = { enable = false }, -- Disable formatting (formatting is done by stylua)
+          format = { enable = false },
         },
       },
     },
@@ -770,10 +789,18 @@ do
   --
   -- You can press `g?` for help in this menu.
   local ensure_installed = vim.tbl_keys(servers or {})
+  local manually_installed = { 'texlab', 'stylua' }
+
+  -- Filter out manually installed tools (iterate backwards to avoid index issues)
+  for i = #ensure_installed, 1, -1 do
+    if vim.tbl_contains(manually_installed, ensure_installed[i]) then
+      table.remove(ensure_installed, i)
+    end
+  end
+
   vim.list_extend(ensure_installed, {
     -- You can add other tools here that you want Mason to install
   })
-
   require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
   for name, server in pairs(servers) do
@@ -781,7 +808,6 @@ do
     vim.lsp.enable(name)
   end
 end
-
 -- ============================================================
 -- SECTION 7: FORMATTING
 -- conform.nvim setup and keymap
@@ -872,8 +898,8 @@ do
   --    See the README about individual language/framework/plugin snippets:
   --    https://github.com/rafamadriz/friendly-snippets
   --
-  -- vim.pack.add { gh 'rafamadriz/friendly-snippets' }
-  -- require('luasnip.loaders.from_vscode').lazy_load()
+  vim.pack.add { gh 'rafamadriz/friendly-snippets' }
+  require('luasnip.loaders.from_vscode').lazy_load()
 
   -- [[ Autocomplete Engine ]]
   vim.pack.add { { src = gh 'saghen/blink.cmp', version = vim.version.range '1.*' } }
