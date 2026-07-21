@@ -726,7 +726,9 @@ do
     -- pyright = {},
     -- rust_analyzer = {},
     verible = {},
-    texlab = {},
+    texlab = {
+      cmd = { os.getenv('HOME') .. '/.cargo/bin/texlab' },
+    },
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
     --    https://github.com/pmizio/typescript-tools.nvim
@@ -739,7 +741,7 @@ do
     -- Special Lua Config, as recommended by neovim help docs
     lua_ls = {
       on_init = function(client)
-        client.server_capabilities.documentFormattingProvider = false 
+        client.server_capabilities.documentFormattingProvider = false
 
         if client.workspace_folders then
           local path = client.workspace_folders[1].name
@@ -926,7 +928,7 @@ do
       -- <c-k>: Toggle signature help
       --
       -- See `:help blink-cmp-config-keymap` for defining your own keymap
-      preset = 'default',
+      preset = 'super-tab',
 
       -- For more advanced Luasnip keymaps (e.g. selecting choice nodes, expansion) see:
       --    https://github.com/L3MON4D3/LuaSnip?tab=readme-ov-file#keymaps
