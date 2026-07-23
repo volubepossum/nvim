@@ -470,6 +470,10 @@ vim.g.vimtex_compiler_generic = {
   },
 }
 
+-- Install VimTeX. NOTE: the `vim.g.vimtex_*` options above MUST be set before
+-- this runs, since VimTeX reads them when it loads.
+vim.pack.add { gh 'lervag/vimtex' }
+
 vim.keymap.set('n', '<leader>ll', '<cmd>VimtexCompile<cr>', { desc = '[L]aTeX [L]compile' })
 vim.keymap.set('n', '<leader>lv', '<cmd>VimtexView<cr>', { desc = '[L]aTeX [V]iew' })
 vim.keymap.set('n', '<leader>lc', '<cmd>VimtexClean<cr>', { desc = '[L]aTeX [C]lean' })
