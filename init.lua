@@ -460,12 +460,19 @@ do
 -- VimTeX configuration (using vim variables, not Lua setup)
 vim.g.vimtex_view_method = 'zathura'
 
-vim.g.vimtex_compiler_method = 'generic'
--- NOTE: the generic backend only reads `command`; VimTeX appends the main
--- filename automatically, so put ALL flags here (a separate `options` table is
--- ignored). Output lands next to the .tex — pdflatex cannot create a build/ dir.
-vim.g.vimtex_compiler_generic = {
-  command = 'lualatex -interaction=nonstopmode -synctex=1 -file-line-error',
+-- Use VimTeX's native latexmk driver (in TeX Live) instead of `generic`.
+-- latexmk runs from the project root, does the needed multiple passes for
+-- \ref/TOC/citations, reports REAL errors to the quickfix list, and writes the
+-- PDF next to main.tex. `-lualatex` selects the LuaLaTeX engine.
+vim.g.vimtex_compiler_method = 'latexmk'
+vim.g.vimtex_compiler_latexmk = {
+  options = {
+    '-lualatex',
+    '-verbose',
+    '-file-line-error',
+    '-synctex=1',
+    '-interaction=nonstopmode',
+  },
 }
 
 -- Install VimTeX. NOTE: the `vim.g.vimtex_*` options above MUST be set before
