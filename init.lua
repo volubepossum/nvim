@@ -461,23 +461,16 @@ do
 vim.g.vimtex_view_method = 'zathura'
 
 vim.g.vimtex_compiler_method = 'generic'
+-- NOTE: the generic backend only reads `command`; VimTeX appends the main
+-- filename automatically, so put ALL flags here (a separate `options` table is
+-- ignored). Output lands next to the .tex — pdflatex cannot create a build/ dir.
 vim.g.vimtex_compiler_generic = {
-  command = 'pdflatex',
-  options = {
-    '--interaction=nonstopmode',
-    '--synctex=1',
-    '--output-directory=build'
-  },
+  command = 'lualatex -interaction=nonstopmode -synctex=1 -file-line-error',
 }
 
 -- Install VimTeX. NOTE: the `vim.g.vimtex_*` options above MUST be set before
 -- this runs, since VimTeX reads them when it loads.
 vim.pack.add { gh 'lervag/vimtex' }
-
--- vim.keymap.set('n', '<leader>ll', '<cmd>VimtexCompile<cr>', { desc = '[L]aTeX [L]compile' })
--- vim.keymap.set('n', '<leader>lv', '<cmd>VimtexView<cr>', { desc = '[L]aTeX [V]iew' })
--- vim.keymap.set('n', '<leader>lc', '<cmd>VimtexClean<cr>', { desc = '[L]aTeX [C]lean' })
--- vim.keymap.set('n', '<leader>le', '<cmd>VimtexErrors<cr>', { desc = '[L]atex [E]rrors' })
   -- ... and there is more!
   --  Check out: https://github.com/nvim-mini/mini.nvim
 end
