@@ -466,6 +466,9 @@ vim.g.vimtex_view_method = 'zathura'
 -- PDF next to main.tex. `-lualatex` selects the LuaLaTeX engine.
 vim.g.vimtex_compiler_method = 'latexmk'
 vim.g.vimtex_compiler_latexmk = {
+  -- Output PDF/aux into build/ (latexmk creates it). Use VimTeX's `out_dir` key
+  -- rather than a raw -output-directory flag so VimTeX knows where the PDF is.
+  out_dir = 'build',
   options = {
     '-lualatex',
     '-verbose',
