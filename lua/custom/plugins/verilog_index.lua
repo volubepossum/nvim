@@ -29,6 +29,10 @@ function M.rules_string() return table.concat(M.rules, ',') end
 --- Column limit for verible-verilog-format, kept in step with line-length above.
 M.column_limit = 200
 
+--- Emit absolute paths into verible.filelist. See the note in `write_filelist`:
+--- the language server resolves relative entries against its cwd, not its root.
+M.use_absolute_paths = true
+
 --- Build the verible-verilog-ls command, passing only lint flags the installed
 --- binary actually advertises -- an unknown flag makes the server exit at
 --- startup, which would silently kill all Verilog LSP features.
@@ -298,16 +302,25 @@ function M.write_filelist(root, flists)
   for _, flist in ipairs(flists) do
     table.insert(out, '#   ' .. relative(flist, root))
   end
+  -- Absolute paths on purpose: verible resolves relative filelist entries
+  -- against --file_list_root, which defaults to the *process* cwd. The language
+  -- server is started without that flag, so relative entries only resolve when
+  -- nvim's cwd happens to be the project root -- otherwise the server's symbol
+  -- table comes up empty and goto-definition silently finds nothing, even though
+  -- the CLI (which we do pass --file_list_root to) resolves everything.
+  --  Set M.use_absolute_paths = false to emit root-relative paths instead.
+  local emit = function(path) return M.use_absolute_paths and path or relative(path, root) end
+
   table.insert(out, '')
   for _, define in ipairs(acc.defines) do
     table.insert(out, '+define+' .. define)
   end
   for _, incdir in ipairs(acc.incdirs) do
-    table.insert(out, '+incdir+' .. relative(incdir, root))
+    table.insert(out, '+incdir+' .. emit(incdir))
   end
   table.insert(out, '')
   for _, file in ipairs(acc.files) do
-    table.insert(out, relative(file, root))
+    table.insert(out, emit(file))
   end
 
   local path = vim.fs.joinpath(root, OUTPUT)

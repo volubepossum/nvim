@@ -782,6 +782,13 @@ do
       -- applies the same set even where no config file exists.
       cmd = require('custom.plugins.verilog_index').ls_cmd(),
       root_dir = function(bufnr, on_dir) on_dir(require('custom.plugins.verilog_index').project_root(vim.api.nvim_buf_get_name(bufnr))) end,
+      on_init = function(client)
+        local root = client.root_dir
+        local filelist = root and vim.fs.joinpath(root, 'verible.filelist')
+        if filelist and vim.fn.filereadable(filelist) == 1 then
+          vim.list_extend(client.config.cmd, { '--file_list_path', filelist, '--file_list_root', root })
+        end
+      end,
     },
     texlab = {
       cmd = { os.getenv('HOME') .. '/.cargo/bin/texlab' },
