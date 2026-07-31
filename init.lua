@@ -777,6 +777,10 @@ do
     -- root must be the directory `:VeribleIndex` writes that file into.
     --  See `lua/custom/plugins/verilog_index.lua`.
     verible = {
+      -- --rules_config_search makes the server walk up from each file to find
+      -- `.rules.verible_lint` (write one with :VeribleWriteRulesConfig); --rules
+      -- applies the same set even where no config file exists.
+      cmd = require('custom.plugins.verilog_index').ls_cmd(),
       root_dir = function(bufnr, on_dir) on_dir(require('custom.plugins.verilog_index').project_root(vim.api.nvim_buf_get_name(bufnr))) end,
     },
     texlab = {
@@ -898,6 +902,10 @@ do
       verilog = { 'verible' },
       systemverilog = { 'verible' },
     },
+    formatters = {
+      -- Keep the formatter's wrap width in step with the line-length lint rule.
+      verible = { prepend_args = { '--column_limit=' .. require('custom.plugins.verilog_index').column_limit } },
+    },
   }
 
   vim.keymap.set({ 'n', 'v' }, '<leader>f', function() require('conform').format { async = true } end, { desc = '[F]ormat buffer' })
@@ -905,20 +913,26 @@ do
   vim.pack.add { gh 'mfussenegger/nvim-lint' }
   local lint = require 'lint'
 
-  -- Create custom verible linter
+  -- Create custom verible linter. Rule set comes from verilog_index so the LS,
+  -- this CLI pass and :VeribleLintProject all agree.
   lint.linters.verible = {
     cmd = 'verible-verilog-lint',
     stdin = false,
-    args = { '--waiver', '/dev/null' },
+    args = { '--rules_config_search', '--rules=' .. require('custom.plugins.verilog_index').rules_string() },
+    ignore_exitcode = true, -- non-zero simply means "violations found"
     parser = function(output)
       local diagnostics = {}
+      -- verible reports `file:line:col: message [rule-name]`
       for line in vim.gsplit(output, '\n') do
-        local col, message = line:match '^.-:(%d+):(.*)$'
-        if col and message then
+        local lnum, col, message = line:match '^.-:(%d+):(%d+):%s*(.*)$'
+        if lnum and message then
+          local code = message:match '%[(.-)%]%s*$'
           table.insert(diagnostics, {
-            lnum = 0,
-            col = tonumber(col),
+            lnum = tonumber(lnum) - 1,
+            col = math.max(tonumber(col) - 1, 0),
             message = message,
+            code = code,
+            source = 'verible',
             severity = vim.diagnostic.severity.WARN,
           })
         end
