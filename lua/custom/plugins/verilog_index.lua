@@ -1,10 +1,7 @@
 -- Verilog/SystemVerilog project indexing for verible-verilog-ls.
 --
--- verible's language server builds a project-wide symbol table (cross-file
--- goto-definition, references, hover, module/port completion) when it finds a
--- `verible.filelist` in the project root. This module generates that file from
--- the build file-lists in `<root>/build/flists`, then restarts the server so it
--- picks the new index up.
+-- Generates <root>/verible.filelist from <root>/build/flists, then restarts
+-- the server.
 --
 -- Keymaps:
 --   <leader>vi  index every flist under build/flists  (:VeribleIndex)
@@ -13,8 +10,7 @@
 
 local M = {}
 
---- Single source of truth for the verible lint/style rule set, shared by the
---- language server, the nvim-lint CLI pass, and `:VeribleWriteRulesConfig`.
+--- Shared verible lint/style rule set.
 M.rules = {
   '+line-length=length:200',
   '-no-tabs',
@@ -23,21 +19,17 @@ M.rules = {
   '-no-trailing-spaces',
 }
 
---- The rule set as a single `--rules=` value.
+--- Rule set as a `--rules=` value.
 function M.rules_string() return table.concat(M.rules, ',') end
 
---- Flags that make a verible CLI tool (verible-verilog-lint) pick up the
---- shared rule set: config-file search plus the same set as a fallback.
---- Shared by `:VeribleLintProject` and the nvim-lint linter definition, so
---- both agree with each other and with the language server's `base_cmd`.
+--- CLI flags for `--rules_config_search` + fallback `--rules=`.
 ---@return string[] flags
 function M.lint_args() return { '--rules_config_search', '--rules=' .. M.rules_string() } end
 
---- Column limit for verible-verilog-format, kept in step with line-length above.
+--- Column limit for verible-verilog-format.
 M.column_limit = 200
 
---- Emit absolute paths into verible.filelist. See the note in `write_filelist`:
---- the language server resolves relative entries against its cwd, not its root.
+--- Emit absolute paths into verible.filelist.
 M.use_absolute_paths = true
 
 local BUILD_SUBDIR = 'build'
@@ -45,11 +37,7 @@ local FLIST_SUBDIR = BUILD_SUBDIR .. '/flists'
 local FLIST_EXT = { ['f'] = true, ['fl'] = true, ['flist'] = true }
 local OUTPUT = 'verible.filelist'
 
---- Base verible-verilog-ls command (exe + lint flags), independent of project
---- root. Only includes flags the installed binary actually advertises -- an
---- unknown flag makes the server exit at startup, which would silently kill
---- all Verilog LSP features. Probes `--helpfull` once and caches the result,
---- since that probe is the expensive part of building the command line.
+--- Base verible-verilog-ls command (exe + lint flags), gated on `--helpfull`.
 ---@return string[] cmd
 local base_cmd_cache
 local function base_cmd()
@@ -73,21 +61,25 @@ local function base_cmd()
   return vim.deepcopy(cmd)
 end
 
---- `--file_list_path`/`--file_list_root` for `root`'s generated filelist, if
---- it exists. Shared by every verible tool invocation that points at the
---- project-wide index (the language server's cmd, :VeribleProject).
+--- `--file_list_path` for `root`'s filelist (verible-verilog-ls has no `--file_list_root`).
 ---@param root string|nil project root, e.g. from `M.project_root()`
 ---@return string[] flags empty when `root` has no verible.filelist yet
 function M.filelist_flags(root)
   local filelist = root and vim.fs.joinpath(root, OUTPUT)
-  if filelist and vim.fn.filereadable(filelist) == 1 then return { '--file_list_path', filelist, '--file_list_root', root } end
+  if filelist and vim.fn.filereadable(filelist) == 1 then return { '--file_list_path', filelist } end
   return {}
 end
 
---- Build the full verible-verilog-ls command for `root`. When `root` has a
---- generated `verible.filelist`, appends `--file_list_path`/`--file_list_root`
---- so the server builds its project-wide symbol table statically at startup,
---- rather than needing an `on_init` hook to patch a running client's cmd.
+--- `M.filelist_flags` + `--file_list_root` (verible-verilog-project only).
+---@param root string|nil project root, e.g. from `M.project_root()`
+---@return string[] flags empty when `root` has no verible.filelist yet
+function M.project_flags(root)
+  local flags = M.filelist_flags(root)
+  if #flags > 0 then vim.list_extend(flags, { '--file_list_root', root }) end
+  return flags
+end
+
+--- Full verible-verilog-ls command for `root`.
 ---@param root string|nil project root, e.g. from `M.project_root()`
 ---@return string[] cmd
 function M.ls_cmd(root)
@@ -96,8 +88,7 @@ function M.ls_cmd(root)
   return cmd
 end
 
---- `<root>/verible.filelist`, warning and returning nil if it hasn't been
---- generated yet. Shared by every command that needs the project index.
+--- `<root>/verible.filelist`, warning and returning nil if missing.
 ---@param root string
 ---@return string|nil filelist
 local function require_filelist(root)
@@ -109,19 +100,15 @@ local function require_filelist(root)
   return filelist
 end
 
--- Depth for the build-tree scan that locates generated sources. build/ is
--- usually a symlink into a scratch area, so the walk follows links; keep the
--- depth bounded so a pathological tree (or a link cycle) can't hang nvim.
+-- Max depth for the build-tree scan (build/ may be a symlink; follows links).
 local BUILD_SCAN_DEPTH = 12
 
---- Project root = nearest ancestor of `start` containing build/flists,
---- falling back to the git root, then to the cwd.
+--- Project root: nearest ancestor with build/flists, else git root, else cwd.
 ---@param start string|nil directory or file path to search upward from
 ---@return string|nil root
 function M.project_root(start)
   start = start or vim.api.nvim_buf_get_name(0)
   if start == '' then start = vim.uv.cwd() end
-  -- The predicate is called per directory entry, so gate on 'build' before stat'ing.
   local root = vim.fs.root(start, function(name, path) return name == 'build' and vim.uv.fs_stat(vim.fs.joinpath(path, FLIST_SUBDIR)) ~= nil end)
   return root or vim.fs.root(start, '.git') or vim.uv.cwd()
 end
@@ -141,9 +128,7 @@ local function discover_flists(root)
   return found
 end
 
---- basename -> absolute paths, for every file under <root>/build. Built lazily
---- on the first flist entry that doesn't exist relative to the project root,
---- and cached for the duration of one index run (see `M.index`).
+--- basename -> absolute paths, for every file under <root>/build.
 ---@type table<string, table<string, string[]>>
 local build_index_cache = {}
 
@@ -173,10 +158,7 @@ local function build_index(root)
   return index
 end
 
---- Locate a flist entry that isn't on disk relative to the project root: some
---- sources (generated packages, IP wrappers, elaborated configs) only exist
---- inside the build tree. Match by basename, preferring a candidate whose path
---- ends with the entry's own tail so `rtl/foo.sv` beats `backup/foo.sv`.
+--- Find a flist entry inside the build tree by basename, preferring a tail match.
 ---@return string|nil abs, integer candidates
 local function find_in_build(path, root)
   local candidates = build_index(root)[vim.fs.basename(path)]
@@ -186,8 +168,6 @@ local function find_in_build(path, root)
   local best
   for _, abs in ipairs(candidates) do
     local suffix_match = vim.endswith(abs, '/' .. tail)
-    -- Prefer a tail match; among equals prefer the shallowest path, so a
-    -- pristine copy wins over one nested in a tool's work directory.
     if suffix_match and (not best or not best.suffix or #abs < #best.abs) then
       best = { abs = abs, suffix = true }
     elseif not best then
@@ -199,17 +179,12 @@ local function find_in_build(path, root)
   return best and best.abs or nil, #candidates
 end
 
---- Resolve a path from a flist. Paths are documented as relative to the project
---- root, but flists assembled elsewhere sometimes carry paths relative to their
---- own directory -- try the root first, then the flist's directory, then the
---- build tree (for files that only exist after a build).
+--- Resolve a flist path: root dir, then flist's dir, then build tree.
 ---@return string|nil abs, integer|nil build_candidates non-nil when found via the build-tree scan
 local function resolve(path, root, flist_dir)
   if path:match '^%$' then path = vim.fn.expand(path) end
   if vim.startswith(path, '/') then
     if vim.uv.fs_stat(path) then return vim.fs.normalize(path) end
-    -- An absolute path can still be stale (a build dir that moved); fall through
-    -- to the basename search below.
   else
     for _, base in ipairs { root, flist_dir } do
       local abs = vim.fs.normalize(vim.fs.joinpath(base, path))
@@ -219,8 +194,7 @@ local function resolve(path, root, flist_dir)
   return find_in_build(path, root)
 end
 
---- Resolve a directory (an `+incdir+` entry). The basename search is file-only,
---- so directories get an explicit build-tree attempt instead.
+--- Resolve a directory (`+incdir+` entry).
 ---@return string|nil abs
 local function resolve_dir(path, root, flist_dir)
   if path:match '^%$' then path = vim.fn.expand(path) end
@@ -233,10 +207,7 @@ local function resolve_dir(path, root, flist_dir)
   return nil
 end
 
---- Parse one flist, accumulating into `acc`.
---- Understands plain paths, `+incdir+a+b`, `+define+X=1`, `-f/-F/-file <flist>`
---- (followed recursively) and `+libext+`/`-y` (ignored -- verible has no
---- library-scan mode).
+--- Parse one flist into `acc`: paths, `+incdir+`, `+define+`, `-f/-F/-file` (recursive).
 ---@param flist string absolute path
 ---@param root string
 ---@param acc { files: string[], seen: table<string,boolean>, incdirs: string[], seen_incdir: table<string,boolean>, defines: string[], seen_define: table<string,boolean>, missing: string[], visited: table<string,boolean> }
@@ -291,7 +262,7 @@ local function parse_flist(flist, root, acc)
           end
         end
       elseif vim.startswith(line, '+') or vim.startswith(line, '-') then
-        -- +libext+, -y, -sverilog, tool switches: nothing for verible to do
+        -- ignored: +libext+, -y, -sverilog, etc.
       else
         local abs, build_candidates = resolve(line, root, dir)
         if not abs then
@@ -339,8 +310,7 @@ function M.write_filelist(root, flists)
   end
   if #acc.files == 0 then return nil, 'no source files found in ' .. #flists .. ' flist(s)' end
 
-  -- Every source directory is also an include search path: `include "x.svh"`
-  -- inside these files resolves relative to +incdir+ entries only.
+  -- also add every source dir as an incdir
   for _, file in ipairs(acc.files) do
     local dir = vim.fs.dirname(file)
     if not acc.seen_incdir[dir] then
@@ -356,13 +326,7 @@ function M.write_filelist(root, flists)
   for _, flist in ipairs(flists) do
     table.insert(out, '#   ' .. relative(flist, root))
   end
-  -- Absolute paths on purpose: verible resolves relative filelist entries
-  -- against --file_list_root, which defaults to the *process* cwd. The language
-  -- server is started without that flag, so relative entries only resolve when
-  -- nvim's cwd happens to be the project root -- otherwise the server's symbol
-  -- table comes up empty and goto-definition silently finds nothing, even though
-  -- the CLI (which we do pass --file_list_root to) resolves everything.
-  --  Set M.use_absolute_paths = false to emit root-relative paths instead.
+  -- M.use_absolute_paths = false emits root-relative paths instead.
   local emit = function(path) return M.use_absolute_paths and path or relative(path, root) end
 
   table.insert(out, '')
@@ -383,10 +347,7 @@ function M.write_filelist(root, flists)
   return { out = path, files = #acc.files, incdirs = #acc.incdirs, generated = acc.generated, missing = acc.missing, ambiguous = acc.ambiguous }
 end
 
---- Stop every verible client and re-attach it to all open verilog buffers, so
---- the server re-reads verible.filelist. Refreshes the registered static
---- `cmd` first (root -> --file_list_path/--file_list_root), since new clients
---- start from that static config rather than patching cmd in `on_init`.
+--- Restart verible and re-attach it to all open verilog buffers.
 function M.restart()
   pcall(vim.lsp.config, 'verible', { cmd = M.ls_cmd(M.project_root()) })
 
@@ -419,7 +380,6 @@ function M.index(opts)
     return
   end
 
-  -- Fresh build-tree scan per run: a rebuild may have added generated sources.
   build_index_cache[root] = nil
   local result, err = M.write_filelist(root, flists)
   build_index_cache[root] = nil
@@ -459,9 +419,7 @@ function M.index_pick()
   end)
 end
 
---- Write `.rules.verible_lint` (one rule per line) into the project root, so
---- every verible tool -- the LS via --rules_config_search, the lint CLI, CI --
---- picks up the same rule set without repeating it on a command line.
+--- Write `.rules.verible_lint` into the project root.
 ---@param root string|nil
 function M.write_rules_config(root)
   root = root or M.project_root()
@@ -510,7 +468,7 @@ end
 function M.project(subcommand)
   local root = M.project_root()
   if not require_filelist(root) then return end
-  run_tool('verible-verilog-project', vim.list_extend({ subcommand }, M.filelist_flags(root)), 'project ' .. subcommand)
+  run_tool('verible-verilog-project', vim.list_extend({ subcommand }, M.project_flags(root)), 'project ' .. subcommand)
 end
 
 --- verible-verilog-preprocessor on the current buffer's file.
@@ -524,8 +482,7 @@ function M.preprocess(subcommand)
   run_tool('verible-verilog-preprocessor', { subcommand, file }, 'preprocessor ' .. subcommand, vim.bo.filetype)
 end
 
---- verible-verilog-lint over the whole indexed project (not just this buffer),
---- with results in the quickfix list. nvim-lint already covers the open buffer.
+--- verible-verilog-lint over the whole indexed project, into the quickfix list.
 function M.lint_project()
   local root = M.project_root()
   local filelist = require_filelist(root)

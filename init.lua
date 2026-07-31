@@ -773,19 +773,9 @@ do
     -- gopls = {},
     -- pyright = {},
     -- rust_analyzer = {},
-    -- verible builds its project-wide symbol table (cross-file goto-def,
-    -- references, completion) from a `verible.filelist` in the root dir, so the
-    -- root must be the directory `:VeribleIndex` writes that file into.
-    --  See `lua/custom/plugins/verilog_index.lua`.
+    -- See `lua/custom/plugins/verilog_index.lua`.
     verible = {
-      -- --rules_config_search makes the server walk up from each file to find
-      -- `.rules.verible_lint` (write one with :VeribleWriteRulesConfig); --rules
-      -- applies the same set even where no config file exists. When
-      -- verible.filelist already exists at the project root, its
-      -- --file_list_path/--file_list_root flags are baked in here too --
-      -- static at config-load time, rather than patched into a running
-      -- client via on_init. If you run :VeribleIndex for the first time
-      -- *after* this loads, :VeribleRestart refreshes this static cmd.
+      -- cmd: --rules_config_search, --rules, --file_list_path (static; :VeribleRestart refreshes).
       cmd = verilog_index.ls_cmd(verilog_index.project_root()),
       root_dir = function(bufnr, on_dir) on_dir(verilog_index.project_root(vim.api.nvim_buf_get_name(bufnr))) end,
     },
