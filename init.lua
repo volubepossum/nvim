@@ -772,7 +772,13 @@ do
     -- gopls = {},
     -- pyright = {},
     -- rust_analyzer = {},
-    verible = {},
+    -- verible builds its project-wide symbol table (cross-file goto-def,
+    -- references, completion) from a `verible.filelist` in the root dir, so the
+    -- root must be the directory `:VeribleIndex` writes that file into.
+    --  See `lua/custom/plugins/verilog_index.lua`.
+    verible = {
+      root_dir = function(bufnr, on_dir) on_dir(require('custom.plugins.verilog_index').project_root(vim.api.nvim_buf_get_name(bufnr))) end,
+    },
     texlab = {
       cmd = { os.getenv('HOME') .. '/.cargo/bin/texlab' },
     },
