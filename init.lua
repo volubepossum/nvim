@@ -766,6 +766,7 @@ do
   -- Enable the following language servers
   --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
   --  See `:help lsp-config` for information about keys and how to configure
+  local verilog_index = require 'custom.plugins.verilog_index'
   ---@type table<string, vim.lsp.Config>
   local servers = {
     -- clangd = {},
@@ -779,16 +780,14 @@ do
     verible = {
       -- --rules_config_search makes the server walk up from each file to find
       -- `.rules.verible_lint` (write one with :VeribleWriteRulesConfig); --rules
-      -- applies the same set even where no config file exists.
-      cmd = require('custom.plugins.verilog_index').ls_cmd(),
-      root_dir = function(bufnr, on_dir) on_dir(require('custom.plugins.verilog_index').project_root(vim.api.nvim_buf_get_name(bufnr))) end,
-      on_init = function(client)
-        local root = client.root_dir
-        local filelist = root and vim.fs.joinpath(root, 'verible.filelist')
-        if filelist and vim.fn.filereadable(filelist) == 1 then
-          vim.list_extend(client.config.cmd, { '--file_list_path', filelist, '--file_list_root', root })
-        end
-      end,
+      -- applies the same set even where no config file exists. When
+      -- verible.filelist already exists at the project root, its
+      -- --file_list_path/--file_list_root flags are baked in here too --
+      -- static at config-load time, rather than patched into a running
+      -- client via on_init. If you run :VeribleIndex for the first time
+      -- *after* this loads, :VeribleRestart refreshes this static cmd.
+      cmd = verilog_index.ls_cmd(verilog_index.project_root()),
+      root_dir = function(bufnr, on_dir) on_dir(verilog_index.project_root(vim.api.nvim_buf_get_name(bufnr))) end,
     },
     texlab = {
       cmd = { os.getenv('HOME') .. '/.cargo/bin/texlab' },
@@ -879,6 +878,8 @@ end
 -- conform.nvim setup and keymap
 -- ============================================================
 do
+  local verilog_index = require 'custom.plugins.verilog_index'
+
   -- [[ Formatting ]]
   vim.pack.add { gh 'stevearc/conform.nvim' }
   require('conform').setup {
@@ -911,7 +912,7 @@ do
     },
     formatters = {
       -- Keep the formatter's wrap width in step with the line-length lint rule.
-      verible = { prepend_args = { '--column_limit=' .. require('custom.plugins.verilog_index').column_limit } },
+      verible = { prepend_args = { '--column_limit=' .. verilog_index.column_limit } },
     },
   }
 
@@ -925,7 +926,7 @@ do
   lint.linters.verible = {
     cmd = 'verible-verilog-lint',
     stdin = false,
-    args = { '--rules_config_search', '--rules=' .. require('custom.plugins.verilog_index').rules_string() },
+    args = verilog_index.lint_args(),
     ignore_exitcode = true, -- non-zero simply means "violations found"
     parser = function(output)
       local diagnostics = {}
