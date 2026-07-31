@@ -99,7 +99,7 @@ do
   vim.g.maplocalleader = ' '
 
   -- Set to true if you have a Nerd Font installed and selected in the terminal
-  vim.g.have_nerd_font = false
+  vim.g.have_nerd_font = true
 
   -- [[ Setting options ]]
   --  See `:help vim.o`
@@ -393,18 +393,56 @@ do
   -- change the command under that to load whatever the name of that colorscheme is.
   --
   -- If you want to see what colorschemes are already installed, you can use `:Telescope colorscheme`.
-  vim.pack.add { gh 'folke/tokyonight.nvim' }
-  ---@diagnostic disable-next-line: missing-fields
-  require('tokyonight').setup {
+  --
+  -- A few other warm/muted themes worth trying are installed below too, so you
+  -- can swap between them live with `:colorscheme <name><Tab>`:
+  --   rose-pine, rose-pine-moon, rose-pine-dawn (light)
+  --   gruvbox-material  (set vim.g.gruvbox_material_background = 'soft'|'medium'|'hard')
+  --   everforest        (set vim.g.everforest_background  = 'soft'|'medium'|'hard')
+  vim.pack.add {
+    -- The repo is literally called `rose-pine/neovim`, so give it an explicit
+    -- name -- otherwise vim.pack installs a plugin directory called `neovim`.
+    { src = gh 'rose-pine/neovim', name = 'rose-pine' },
+    gh 'sainnhe/gruvbox-material',
+    gh 'sainnhe/everforest',
+  }
+
+  require('rose-pine').setup {
+    variant = 'moon', -- 'auto' | 'main' (darkest) | 'moon' (mid) | 'dawn' (light)
+    dark_variant = 'moon',
     styles = {
-      comments = { italic = true }, -- Disable italics in comments
+      italic = true,
+      transparency = false, -- set true to let your terminal background through
+    },
+    highlight_groups = {
+      -- Comments in the muted grey rather than the default subtle blue-grey,
+      -- and italic so they recede from the code.
+      Comment = { fg = 'muted', italic = true },
+      -- Make the cursorline and the current-line number a little more obvious.
+      CursorLine = { bg = 'overlay' },
+      CursorLineNr = { fg = 'gold', bold = true },
+      -- Visual selection with a warmer tint than the default.
+      Visual = { bg = 'highlight_med' },
+      -- Floating windows: same background as the editor with a soft border,
+      -- so telescope/lsp-hover/which-key don't look like pasted-on boxes.
+      NormalFloat = { bg = 'surface' },
+      FloatBorder = { fg = 'highlight_high', bg = 'surface' },
+      -- Vertical split / window separator: dim, not a bright line.
+      WinSeparator = { fg = 'overlay' },
     },
   }
 
+  -- These only take effect for the sainnhe themes, but are harmless otherwise.
+  vim.g.gruvbox_material_background = 'medium'
+  vim.g.gruvbox_material_foreground = 'mix'
+  vim.g.gruvbox_material_enable_italic = true
+  vim.g.gruvbox_material_better_performance = 1
+  vim.g.everforest_background = 'medium'
+  vim.g.everforest_enable_italic = true
+  vim.g.everforest_better_performance = 1
+
   -- Load the colorscheme here.
-  -- Like many other themes, this one has different styles, and you could load
-  -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-  vim.cmd.colorscheme 'tokyonight-night'
+  vim.cmd.colorscheme 'rose-pine-moon'
 
   -- Highlight todo, notes, etc in comments
   vim.pack.add { gh 'folke/todo-comments.nvim' }
@@ -444,17 +482,19 @@ do
   require('mini.surround').setup()
 
   -- Simple and easy statusline.
-  --  You could remove this setup call if you don't like it,
-  --  and try some other statusline plugin
-  local statusline = require 'mini.statusline'
-  -- Set `use_icons` to true if you have a Nerd Font
-  statusline.setup { use_icons = vim.g.have_nerd_font }
-
-  -- You can configure sections in the statusline by overriding their
-  -- default behavior. For example, here we set the section for
-  -- cursor location to LINE:COLUMN
-  ---@diagnostic disable-next-line: duplicate-set-field
-  statusline.section_location = function() return '%2l:%-2v' end
+  --  NOTE: Disabled in favour of lualine, configured in
+  --  `lua/custom/plugins/style.lua`. Both plugins write to 'statusline', so
+  --  only one of them can be active at a time. To go back to mini.statusline,
+  --  uncomment this block and delete (or comment out) the lualine setup there.
+  -- local statusline = require 'mini.statusline'
+  -- -- Set `use_icons` to true if you have a Nerd Font
+  -- statusline.setup { use_icons = vim.g.have_nerd_font }
+  --
+  -- -- You can configure sections in the statusline by overriding their
+  -- -- default behavior. For example, here we set the section for
+  -- -- cursor location to LINE:COLUMN
+  -- ---@diagnostic disable-next-line: duplicate-set-field
+  -- statusline.section_location = function() return '%2l:%-2v' end
 
 
 -- VimTeX configuration (using vim variables, not Lua setup)
@@ -1059,7 +1099,7 @@ do
   -- NOTE: You can add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
-  -- require 'custom.plugins'
+  require 'custom.plugins'
 end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
