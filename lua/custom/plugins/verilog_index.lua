@@ -30,7 +30,7 @@ function M.lint_args() return { '--rules_config_search', '--rules=' .. M.rules_s
 M.column_limit = 200
 
 --- Emit absolute paths into verible.filelist.
-M.use_absolute_paths = true
+M.use_absolute_paths = false
 
 local BUILD_SUBDIR = 'build'
 local FLIST_SUBDIR = BUILD_SUBDIR .. '/flists'
@@ -61,7 +61,7 @@ local function base_cmd()
   return vim.deepcopy(cmd)
 end
 
---- `--file_list_path` for `root`'s filelist (verible-verilog-ls has no `--file_list_root`).
+--- `--file_list_path` for `root`'s filelist.
 ---@param root string|nil project root, e.g. from `M.project_root()`
 ---@return string[] flags empty when `root` has no verible.filelist yet
 function M.filelist_flags(root)
