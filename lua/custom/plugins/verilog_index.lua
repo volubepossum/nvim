@@ -7,8 +7,13 @@
 --   <leader>vi  index every flist under build/flists  (:VeribleIndex)
 --   <leader>vf  pick one flist to index               (:VeribleIndexPick)
 --   <leader>vr  restart the verible LSP               (:VeribleRestart)
+--   <leader>vc  regenerate ctags "tags" file           (:VeribleCtags)
 
 local M = {}
+
+-- ============================================================
+-- Config
+-- ============================================================
 
 --- Shared verible lint/style rule set.
 M.rules = {
@@ -37,55 +42,21 @@ local FLIST_SUBDIR = BUILD_SUBDIR .. '/flists'
 local FLIST_EXT = { ['f'] = true, ['fl'] = true, ['flist'] = true }
 local OUTPUT = 'verible.filelist'
 
---- Base verible-verilog-ls command (exe + lint flags), gated on `--helpfull`.
----@return string[] cmd
-local base_cmd_cache
-local function base_cmd()
-  if base_cmd_cache then return vim.deepcopy(base_cmd_cache) end
+-- Max depth for the build-tree scan (build/ may be a symlink; follows links).
+local BUILD_SCAN_DEPTH = 12
 
-  local exe = 'verible-verilog-ls'
-  local cmd = { exe }
-  if vim.fn.executable(exe) == 0 then
-    base_cmd_cache = cmd
-    return vim.deepcopy(cmd)
-  end
+-- ============================================================
+-- Project root discovery
+-- ============================================================
 
-  local help = ''
-  local ok, res = pcall(function() return vim.system({ exe, '--helpfull' }, { text = true }):wait(2000) end)
-  if ok and res then help = (res.stdout or '') .. (res.stderr or '') end
-
-  if help:find '%-%-rules_config_search' then table.insert(cmd, '--rules_config_search') end
-  if help:find '%-%-rules[%s=]' or help:find '%-%-rules\n' then table.insert(cmd, '--rules=' .. M.rules_string()) end
-
-  base_cmd_cache = cmd
-  return vim.deepcopy(cmd)
-end
-
---- `--file_list_path` for `root`'s filelist.
----@param root string|nil project root, e.g. from `M.project_root()`
----@return string[] flags empty when `root` has no verible.filelist yet
-function M.filelist_flags(root)
-  local filelist = root and vim.fs.joinpath(root, OUTPUT)
-  if filelist and vim.fn.filereadable(filelist) == 1 then return { '--file_list_path', filelist } end
-  return {}
-end
-
---- `M.filelist_flags` + `--file_list_root` (verible-verilog-project only).
----@param root string|nil project root, e.g. from `M.project_root()`
----@return string[] flags empty when `root` has no verible.filelist yet
-function M.project_flags(root)
-  local flags = M.filelist_flags(root)
-  if #flags > 0 then vim.list_extend(flags, { '--file_list_root', root }) end
-  return flags
-end
-
---- Full verible-verilog-ls command for `root`.
----@param root string|nil project root, e.g. from `M.project_root()`
----@return string[] cmd
-function M.ls_cmd(root)
-  local cmd = base_cmd()
-  vim.list_extend(cmd, M.filelist_flags(root))
-  return cmd
+--- Project root: nearest ancestor with build/flists, else git root, else cwd.
+---@param start string|nil directory or file path to search upward from
+---@return string|nil root
+function M.project_root(start)
+  start = start or vim.api.nvim_buf_get_name(0)
+  if start == '' then start = vim.uv.cwd() end
+  local root = vim.fs.root(start, function(name, path) return name == 'build' and vim.uv.fs_stat(vim.fs.joinpath(path, FLIST_SUBDIR)) ~= nil end)
+  return root or vim.fs.root(start, '.git') or vim.uv.cwd()
 end
 
 --- `<root>/verible.filelist`, warning and returning nil if missing.
@@ -100,18 +71,9 @@ local function require_filelist(root)
   return filelist
 end
 
--- Max depth for the build-tree scan (build/ may be a symlink; follows links).
-local BUILD_SCAN_DEPTH = 12
-
---- Project root: nearest ancestor with build/flists, else git root, else cwd.
----@param start string|nil directory or file path to search upward from
----@return string|nil root
-function M.project_root(start)
-  start = start or vim.api.nvim_buf_get_name(0)
-  if start == '' then start = vim.uv.cwd() end
-  local root = vim.fs.root(start, function(name, path) return name == 'build' and vim.uv.fs_stat(vim.fs.joinpath(path, FLIST_SUBDIR)) ~= nil end)
-  return root or vim.fs.root(start, '.git') or vim.uv.cwd()
-end
+-- ============================================================
+-- Flist parsing engine: build/flists/*.f -> <root>/verible.filelist
+-- ============================================================
 
 --- All flist files under <root>/build/flists (recursive).
 ---@param root string
@@ -347,6 +309,75 @@ function M.write_filelist(root, flists)
   return { out = path, files = #acc.files, incdirs = #acc.incdirs, generated = acc.generated, missing = acc.missing, ambiguous = acc.ambiguous }
 end
 
+--- Absolute source-file paths listed in `<root>/verible.filelist` (skips comments/`+incdir+`/`+define+`).
+---@param root string
+---@return string[] files
+local function filelist_files(root)
+  local filelist = vim.fs.joinpath(root, OUTPUT)
+  if vim.fn.filereadable(filelist) == 0 then return {} end
+  local files = {}
+  for _, line in ipairs(vim.fn.readfile(filelist)) do
+    if line ~= '' and not vim.startswith(line, '#') and not vim.startswith(line, '+') then table.insert(files, vim.fs.joinpath(root, line)) end
+  end
+  return files
+end
+
+-- ============================================================
+-- verible-verilog-ls command/config + restart
+-- ============================================================
+
+--- Base verible-verilog-ls command (exe + lint flags), gated on `--helpfull`.
+---@return string[] cmd
+local base_cmd_cache
+local function base_cmd()
+  if base_cmd_cache then return vim.deepcopy(base_cmd_cache) end
+
+  local exe = 'verible-verilog-ls'
+  local cmd = { exe }
+  if vim.fn.executable(exe) == 0 then
+    base_cmd_cache = cmd
+    return vim.deepcopy(cmd)
+  end
+
+  local help = ''
+  local ok, res = pcall(function() return vim.system({ exe, '--helpfull' }, { text = true }):wait(2000) end)
+  if ok and res then help = (res.stdout or '') .. (res.stderr or '') end
+
+  if help:find '%-%-rules_config_search' then table.insert(cmd, '--rules_config_search') end
+  if help:find '%-%-rules[%s=]' or help:find '%-%-rules\n' then table.insert(cmd, '--rules=' .. M.rules_string()) end
+  if help:find '%-%-lsp_enable_hover' then table.insert(cmd, '--lsp_enable_hover') end
+
+  base_cmd_cache = cmd
+  return vim.deepcopy(cmd)
+end
+
+--- `--file_list_path` for `root`'s filelist.
+---@param root string|nil project root, e.g. from `M.project_root()`
+---@return string[] flags empty when `root` has no verible.filelist yet
+function M.filelist_flags(root)
+  local filelist = root and vim.fs.joinpath(root, OUTPUT)
+  if filelist and vim.fn.filereadable(filelist) == 1 then return { '--file_list_path', filelist } end
+  return {}
+end
+
+--- `M.filelist_flags` + `--file_list_root` (verible-verilog-project only).
+---@param root string|nil project root, e.g. from `M.project_root()`
+---@return string[] flags empty when `root` has no verible.filelist yet
+function M.project_flags(root)
+  local flags = M.filelist_flags(root)
+  if #flags > 0 then vim.list_extend(flags, { '--file_list_root', root }) end
+  return flags
+end
+
+--- Full verible-verilog-ls command for `root`.
+---@param root string|nil project root, e.g. from `M.project_root()`
+---@return string[] cmd
+function M.ls_cmd(root)
+  local cmd = base_cmd()
+  vim.list_extend(cmd, M.filelist_flags(root))
+  return cmd
+end
+
 --- Restart verible and re-attach it to all open verilog buffers.
 function M.restart()
   pcall(vim.lsp.config, 'verible', { cmd = M.ls_cmd(M.project_root()) })
@@ -363,6 +394,10 @@ function M.restart()
   end, 200)
   return #clients
 end
+
+-- ============================================================
+-- Indexing entry points
+-- ============================================================
 
 --- Index the project: build verible.filelist, then restart verible.
 ---@param opts { flists: string[]|nil, root: string|nil }|nil
@@ -432,6 +467,10 @@ function M.write_rules_config(root)
   vim.notify('verible: wrote ' .. path .. ' (' .. #M.rules .. ' rules)')
 end
 
+-- ============================================================
+-- CLI tool wrappers (project, preprocessor, lint, ctags)
+-- ============================================================
+
 --- Run a verible CLI tool and drop its output in a scratch split.
 ---@param exe string
 ---@param args string[]
@@ -485,12 +524,8 @@ end
 --- verible-verilog-lint over the whole indexed project, into the quickfix list.
 function M.lint_project()
   local root = M.project_root()
-  local filelist = require_filelist(root)
-  if not filelist then return end
-  local files = {}
-  for _, line in ipairs(vim.fn.readfile(filelist)) do
-    if line ~= '' and not vim.startswith(line, '#') and not vim.startswith(line, '+') then table.insert(files, vim.fs.joinpath(root, line)) end
-  end
+  if not require_filelist(root) then return end
+  local files = filelist_files(root)
   if #files == 0 then
     vim.notify('verible: ' .. OUTPUT .. ' lists no sources', vim.log.levels.WARN)
     return
@@ -520,6 +555,38 @@ function M.lint_project()
     end)
   end)
 end
+
+--- `ctags` over every file in `verible.filelist`, as a `C-]`/`:tag` fallback for when the LSP
+--- can't resolve something. Uses ctags' own Verilog/SystemVerilog defaults -- no extra flags.
+---@param root string|nil
+function M.ctags(root)
+  root = root or M.project_root()
+  if not require_filelist(root) then return end
+  local files = filelist_files(root)
+  if #files == 0 then
+    vim.notify('verible: ' .. OUTPUT .. ' lists no sources', vim.log.levels.WARN)
+    return
+  end
+  if vim.fn.executable 'ctags' == 0 then
+    vim.notify('verible: ctags not on PATH', vim.log.levels.ERROR)
+    return
+  end
+
+  local tagsfile = vim.fs.joinpath(root, 'tags')
+  vim.system({ 'ctags', '-f', tagsfile, '-L', '-' }, { text = true, cwd = root, stdin = table.concat(files, '\n') .. '\n' }, function(res)
+    vim.schedule(function()
+      if res.code ~= 0 then
+        vim.notify('verible: ctags failed (exit ' .. res.code .. ')\n' .. (res.stderr or ''), vim.log.levels.ERROR)
+        return
+      end
+      vim.notify(('verible: wrote %s (%d files)'):format(relative(tagsfile, root), #files))
+    end)
+  end)
+end
+
+-- ============================================================
+-- User commands + keymaps
+-- ============================================================
 
 vim.api.nvim_create_user_command('VeribleIndex', function(cmd)
   local root = M.project_root()
@@ -562,10 +629,13 @@ vim.api.nvim_create_user_command('VeriblePreprocess', function(cmd) M.preprocess
 
 vim.api.nvim_create_user_command('VeribleLintProject', function() M.lint_project() end, { desc = 'Lint every file in verible.filelist into the quickfix list' })
 
+vim.api.nvim_create_user_command('VeribleCtags', function() M.ctags() end, { desc = 'Generate a ctags "tags" file from verible.filelist' })
+
 vim.keymap.set('n', '<leader>vi', function() M.index() end, { desc = '[V]erilog [I]ndex project (all flists)' })
 vim.keymap.set('n', '<leader>vf', function() M.index_pick() end, { desc = '[V]erilog index one [F]list' })
 vim.keymap.set('n', '<leader>vr', function() M.restart() end, { desc = '[V]erilog LSP [R]estart' })
 vim.keymap.set('n', '<leader>vl', function() M.lint_project() end, { desc = '[V]erilog [L]int whole project' })
+vim.keymap.set('n', '<leader>vc', function() M.ctags() end, { desc = '[V]erilog [C]tags (regenerate tags file)' })
 vim.keymap.set('n', '<leader>vd', function() M.project 'file-deps' end, { desc = '[V]erilog file [D]ependencies' })
 vim.keymap.set('n', '<leader>vs', function() M.project 'symbol-table-defs' end, { desc = '[V]erilog [S]ymbol table' })
 vim.keymap.set('n', '<leader>vp', function() M.preprocess 'preprocess' end, { desc = '[V]erilog [P]reprocess this file' })
