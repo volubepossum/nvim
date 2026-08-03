@@ -3,8 +3,20 @@
 vim.pack.add { 'https://github.com/mfussenegger/nvim-lint' }
 
 local lint = require 'lint'
+
+-- rumdl: Rust markdownlint replacement, install with `cargo install rumdl`.
+-- nvim-lint has no built-in def for it, so parse its `file:line:col: [MDxxx] message` output.
+lint.linters.rumdl = {
+  cmd = 'rumdl',
+  args = { 'check' },
+  stdin = false,
+  append_fname = true,
+  ignore_exitcode = true,
+  parser = require('lint.parser').from_pattern('([^:]+):(%d+):(%d+): %[(%u+%d+)%] (.*)', { 'file', 'lnum', 'col', 'code', 'message' }, nil, { source = 'rumdl' }),
+}
+
 lint.linters_by_ft = {
-  markdown = { 'markdownlint' }, -- Make sure to install `markdownlint` via mason / npm
+  markdown = { 'rumdl' },
 }
 
 -- To allow other plugins to add linters to require('lint').linters_by_ft,
