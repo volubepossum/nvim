@@ -386,6 +386,7 @@ do
   require('neogit').setup {}
 
   vim.keymap.set('n', '<leader>gs', '<cmd>Neogit<cr>', { desc = '[G]it [S]tatus' })
+  -- vim.keymap.set('n', '<leader>gb', '<cmd>Neogit<cr>', { desc = '[G]it [B]lame' })
 
   -- [[ Colorscheme ]]
   -- You can easily change to a different colorscheme.
@@ -399,6 +400,7 @@ do
   --   rose-pine, rose-pine-moon, rose-pine-dawn (light)
   --   gruvbox-material  (set vim.g.gruvbox_material_background = 'soft'|'medium'|'hard')
   --   everforest        (set vim.g.everforest_background  = 'soft'|'medium'|'hard')
+
   vim.pack.add {
     -- The repo is literally called `rose-pine/neovim`, so give it an explicit
     -- name -- otherwise vim.pack installs a plugin directory called `neovim`.
