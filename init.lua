@@ -239,6 +239,62 @@ do
   -- vim.keymap.set("n", "<C-S-j>", "<C-w>J", { desc = "Move window to the lower" })
   -- vim.keymap.set("n", "<C-S-k>", "<C-w>K", { desc = "Move window to the upper" })
 
+  -- [[ Fold strategy switching ]]
+  --  'foldmethod' and 'foldexpr' are window-local, so this only affects the current window.
+  --  See `:help fold-methods`
+  --  `zS` is the (unused by default) prefix, then one letter picks the strategy.
+  local fold_strategies = {
+    { key = 't', name = 'treesitter', foldmethod = 'expr', foldexpr = 'v:lua.vim.treesitter.foldexpr()' },
+    { key = 'l', name = 'lsp', foldmethod = 'expr', foldexpr = 'v:lua.vim.lsp.foldexpr()' },
+    { key = 'i', name = 'indent', foldmethod = 'indent', foldexpr = '0' },
+    { key = 's', name = 'syntax', foldmethod = 'syntax', foldexpr = '0' },
+    { key = 'k', name = 'marker', foldmethod = 'marker', foldexpr = '0' },
+    -- NOTE: switching *to* manual keeps whatever folds the previous method computed,
+    -- which is the usual way to freeze treesitter folds before editing.
+    { key = 'm', name = 'manual', foldmethod = 'manual', foldexpr = '0' },
+  }
+
+  ---@param strategy { name: string, foldmethod: string, foldexpr: string }
+  local function apply_fold_strategy(strategy)
+    vim.wo.foldmethod = strategy.foldmethod
+    vim.wo.foldexpr = strategy.foldexpr
+    -- Keep everything open, otherwise switching drops you into a wall of closed folds
+    vim.wo.foldlevel = 99
+    vim.wo.foldcolumn = strategy.name == 'manual' and '0' or 'auto:1'
+    -- Force a recompute of the fold levels
+    if strategy.foldmethod == 'expr' then vim.cmd 'normal! zX' end
+    vim.notify('foldmethod: ' .. strategy.name, vim.log.levels.INFO)
+  end
+
+  local function pick_fold_strategy()
+    vim.ui.select(fold_strategies, {
+      prompt = 'Fold strategy (current: ' .. vim.wo.foldmethod .. ')',
+      format_item = function(strategy) return strategy.name end,
+    }, function(strategy)
+      if strategy then apply_fold_strategy(strategy) end
+    end)
+  end
+
+  for _, strategy in ipairs(fold_strategies) do
+    vim.keymap.set('n', 'zS' .. strategy.key, function() apply_fold_strategy(strategy) end, { desc = 'Fold: ' .. strategy.name })
+  end
+  -- Fall back to a prompt for the strategy if you don't remember the letter
+  vim.keymap.set('n', 'zS<CR>', pick_fold_strategy, { desc = 'Fold: select strategy' })
+
+  vim.api.nvim_create_user_command('FoldStrategy', function(opts)
+    if opts.args == '' then return pick_fold_strategy() end
+    for _, strategy in ipairs(fold_strategies) do
+      if strategy.name == opts.args then return apply_fold_strategy(strategy) end
+    end
+    vim.notify('Unknown fold strategy: ' .. opts.args, vim.log.levels.ERROR)
+  end, {
+    nargs = '?',
+    desc = 'Set the fold strategy for the current window',
+    complete = function()
+      return vim.tbl_map(function(strategy) return strategy.name end, fold_strategies)
+    end,
+  })
+
   -- [[ Basic Autocommands ]]
   --  See `:help lua-guide-autocommands`
 
@@ -372,6 +428,7 @@ do
       { '<leader>t', group = '[T]oggle' },
       { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
+      { 'zS', group = 'Fold [S]trategy' },
     },
   }
 
