@@ -539,6 +539,11 @@ do
   -- - sr)'  - [S]urround [R]eplace [)] [']
   require('mini.surround').setup()
 
+  -- Auto match brackets and quotations
+  -- opening bracket/quotation adds matching closing bracket/quotation
+  -- other features too => https://nvim-mini.org/mini.nvim/readmes/mini-pairs
+  require('mini.pairs').setup()
+
   -- Simple and easy statusline.
   --  NOTE: Disabled in favour of lualine, configured in
   --  `lua/custom/plugins/style.lua`. Both plugins write to 'statusline', so
@@ -553,32 +558,8 @@ do
   -- -- cursor location to LINE:COLUMN
   -- ---@diagnostic disable-next-line: duplicate-set-field
   -- statusline.section_location = function() return '%2l:%-2v' end
+  require('mini.pairs').setup()
 
-
--- VimTeX configuration (using vim variables, not Lua setup)
-vim.g.vimtex_view_method = 'zathura'
-
--- Use VimTeX's native latexmk driver (in TeX Live) instead of `generic`.
--- latexmk runs from the project root, does the needed multiple passes for
--- \ref/TOC/citations, reports REAL errors to the quickfix list, and writes the
--- PDF next to main.tex. `-lualatex` selects the LuaLaTeX engine.
-vim.g.vimtex_compiler_method = 'latexmk'
-vim.g.vimtex_compiler_latexmk = {
-  -- Output PDF/aux into build/ (latexmk creates it). Use VimTeX's `out_dir` key
-  -- rather than a raw -output-directory flag so VimTeX knows where the PDF is.
-  out_dir = 'build',
-  options = {
-    '-lualatex',
-    '-verbose',
-    '-file-line-error',
-    '-synctex=1',
-    '-interaction=nonstopmode',
-  },
-}
-
--- Install VimTeX. NOTE: the `vim.g.vimtex_*` options above MUST be set before
--- this runs, since VimTeX reads them when it loads.
-vim.pack.add { gh 'lervag/vimtex' }
   -- ... and there is more!
   --  Check out: https://github.com/nvim-mini/mini.nvim
 end
@@ -840,9 +821,7 @@ do
       cmd = verilog_index.ls_cmd(verilog_index.project_root()),
       root_dir = function(bufnr, on_dir) on_dir(verilog_index.project_root(vim.api.nvim_buf_get_name(bufnr))) end,
     },
-    texlab = {
-      cmd = { os.getenv('HOME') .. '/.cargo/bin/texlab' },
-    },
+    texlab = {},
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
     --    https://github.com/pmizio/typescript-tools.nvim
@@ -1184,3 +1163,32 @@ end
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
+
+
+
+-- ===== vimtex =====
+
+-- VimTeX configuration (using vim variables, not Lua setup)
+vim.g.vimtex_view_method = 'zathura'
+
+-- Use VimTeX's native latexmk driver (in TeX Live) instead of `generic`.
+-- latexmk runs from the project root, does the needed multiple passes for
+-- \ref/TOC/citations, reports REAL errors to the quickfix list, and writes the
+-- PDF next to main.tex. `-lualatex` selects the LuaLaTeX engine.
+vim.g.vimtex_compiler_method = 'latexmk'
+vim.g.vimtex_compiler_latexmk = {
+  -- Output PDF/aux into build/ (latexmk creates it). Use VimTeX's `out_dir` key
+  -- rather than a raw -output-directory flag so VimTeX knows where the PDF is.
+  out_dir = 'build',
+  options = {
+    '-lualatex',
+    '-verbose',
+    '-file-line-error',
+    '-synctex=1',
+    '-interaction=nonstopmode',
+  },
+}
+
+-- Install VimTeX. NOTE: the `vim.g.vimtex_*` options above MUST be set before
+-- this runs, since VimTeX reads them when it loads.
+vim.pack.add { gh 'lervag/vimtex' }
