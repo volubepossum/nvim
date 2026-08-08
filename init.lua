@@ -466,11 +466,11 @@ do
   }
 
   require('rose-pine').setup {
-    variant = 'moon', -- 'auto' | 'main' (darkest) | 'moon' (mid) | 'dawn' (light)
+    variant = 'main', -- 'auto' | 'main' (darkest) | 'moon' (mid) | 'dawn' (light)
     dark_variant = 'moon',
     styles = {
       italic = true,
-      transparency = false, -- set true to let your terminal background through
+      transparency = true, -- set true to let your terminal background through
     },
     highlight_groups = {
       -- Comments in the muted grey rather than the default subtle blue-grey,
@@ -480,7 +480,7 @@ do
       CursorLine = { bg = 'overlay' },
       CursorLineNr = { fg = 'gold', bold = true },
       -- Visual selection with a warmer tint than the default.
-      Visual = { bg = 'highlight_med' },
+      Visual = { bg = 'pine' },
       -- Floating windows: same background as the editor with a soft border,
       -- so telescope/lsp-hover/which-key don't look like pasted-on boxes.
       NormalFloat = { bg = 'surface' },
