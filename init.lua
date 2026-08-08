@@ -813,7 +813,7 @@ do
   local servers = {
     -- clangd = {},
     gopls = {},
-    pyright = {},
+    pyrefly = {},
     -- rust_analyzer = {},
     -- See `lua/custom/plugins/verilog_index.lua`.
     verible = {
@@ -875,6 +875,12 @@ do
 
   -- Automatically install LSPs and related tools to stdpath for Neovim
   require('mason').setup {}
+
+  vim.pack.add {
+    gh 'jglasovic/venv-lsp.nvim'
+  }
+
+  require("venv-lsp").setup()
 
   -- Ensure the servers and tools above are installed
   --
