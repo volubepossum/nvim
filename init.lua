@@ -964,6 +964,7 @@ do
     cmd = 'verible-verilog-lint',
     stdin = false,
     args = verilog_index.lint_args(),
+    stream = 'both', -- lint violations go to stdout, syntax errors to stderr
     ignore_exitcode = true, -- non-zero simply means "violations found"
     parser = function(output)
       local diagnostics = {}
@@ -991,9 +992,9 @@ do
     systemverilog = { 'verible' },
   }
 
-  vim.api.nvim_create_autocmd({ 'BufWritePost', 'BufReadPost' }, {
-    callback = function() lint.try_lint() end,
-  })
+  -- The linting autocmd lives in `kickstart.plugins.lint` -- don't register a
+  -- second one here or every write would run the linters twice.
+  vim.api.nvim_create_user_command('Lint', function() lint.try_lint() end, { desc = 'Run the current buffer through its nvim-lint linters' })
 end
 
 -- ============================================================

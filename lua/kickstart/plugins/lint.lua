@@ -15,9 +15,11 @@ lint.linters.rumdl = {
   parser = require('lint.parser').from_pattern('([^:]+):(%d+):(%d+): %[(%u+%d+)%] (.*)', { 'file', 'lnum', 'col', 'code', 'message' }, nil, { source = 'rumdl' }),
 }
 
-lint.linters_by_ft = {
-  markdown = { 'rumdl' },
-}
+-- Merge, don't replace: init.lua (section 7) already reset linters_by_ft to its
+-- own table (verilog/systemverilog -> verible), and this file is required after
+-- it. A wholesale assignment here would silently drop those.
+lint.linters_by_ft = lint.linters_by_ft or {}
+lint.linters_by_ft.markdown = { 'rumdl' }
 
 -- To allow other plugins to add linters to require('lint').linters_by_ft,
 -- instead set linters_by_ft like this:
