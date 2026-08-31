@@ -1199,3 +1199,6 @@ vim.g.vimtex_compiler_latexmk = {
 -- Install VimTeX. NOTE: the `vim.g.vimtex_*` options above MUST be set before
 -- this runs, since VimTeX reads them when it loads.
 vim.pack.add { gh 'lervag/vimtex' }
+
+-- Use zathura as pdf viewer
+vim.cmd("autocmd BufEnter *.pdf !zathura '%'")
