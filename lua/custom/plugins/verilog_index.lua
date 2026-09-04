@@ -15,24 +15,71 @@ local M = {}
 -- Config
 -- ============================================================
 
---- Shared verible lint/style rule set.
-M.rules = {
-  '+line-length=length:200',
-  '-no-tabs',
-  'one-module-per-file',
-  'parameter-name-style=localparam_style:ALL_CAPS',
-  '-no-trailing-spaces',
-}
+-- Rules, waivers and formatter settings come from verible's own config files,
+-- nearest-first, so a project overrides M.central_dir:
+--
+--   .rules.verible_lint            lint rules      (verible searches upward itself)
+--   .verible-lint-waivers          waivers         (--waiver_files)
+--   .verible-verilog-format.flags  formatter flags (--flagfile)
+--
+-- No `--rules=` is passed: it overrides .rules.verible_lint on every rule it
+-- names, so a list here would silently beat every project config.
+M.rules_basename = '.rules.verible_lint'
+M.waiver_basename = '.verible-lint-waivers'
+M.format_flags_basename = '.verible-verilog-format.flags'
 
---- Rule set as a `--rules=` value.
-function M.rules_string() return table.concat(M.rules, ',') end
+--- Machine-wide fallback: drop any of the three basenames above in here.
+M.central_dir = vim.fs.normalize '~/.config/verible'
 
---- CLI flags for `--rules_config_search` + fallback `--rules=`.
+--- Nearest `basename` at or above `start` (default: buffer file, else cwd), and
+--- the central copy if it exists.
+---@return string|nil found, string|nil central
+local function locate(basename, start)
+  if not start or start == '' then
+    start = vim.api.nvim_buf_get_name(0)
+    if start == '' then start = vim.uv.cwd() end
+  end
+  local found = vim.fs.find(basename, { path = start, upward = true, type = 'file' })[1]
+  local central = vim.fs.joinpath(M.central_dir, basename)
+  return found, vim.fn.filereadable(central) == 1 and central or nil
+end
+
+--- Nearest `basename`, else the central copy, else nil.
+---@return string|nil path
+function M.find_config(basename, start)
+  local found, central = locate(basename, start)
+  return found or central
+end
+
+--- `--rules_config_search` is verible's own nearest-wins lookup; `--rules_config`
+--- disables it, so it is only used to reach the central default.
 ---@return string[] flags
-function M.lint_args() return { '--rules_config_search', '--rules=' .. M.rules_string() } end
+function M.rules_flags(start)
+  local found, central = locate(M.rules_basename, start)
+  if not found and central then return { '--rules_config=' .. central } end
+  return { '--rules_config_search' }
+end
 
---- Column limit for verible-verilog-format.
-M.column_limit = 200
+---@return string[] flags
+function M.waiver_flags(start)
+  local path = M.find_config(M.waiver_basename, start)
+  return path and { '--waiver_files=' .. path } or {}
+end
+
+--- With no flagfile anywhere, verible's own defaults apply.
+---@return string[] flags
+function M.format_flags(start)
+  local path = M.find_config(M.format_flags_basename, start)
+  return path and { '--flagfile=' .. path } or {}
+end
+
+--- Flags for verible-verilog-lint: rules + waivers.
+---@return string[] flags
+function M.lint_args(start)
+  local flags = M.rules_flags(start)
+  vim.list_extend(flags, M.waiver_flags(start))
+  return flags
+end
 
 --- Emit absolute paths into verible.filelist.
 M.use_absolute_paths = false
@@ -326,29 +373,33 @@ end
 -- verible-verilog-ls command/config + restart
 -- ============================================================
 
---- Base verible-verilog-ls command (exe + lint flags), gated on `--helpfull`.
----@return string[] cmd
-local base_cmd_cache
-local function base_cmd()
-  if base_cmd_cache then return vim.deepcopy(base_cmd_cache) end
+--- Supported verible-verilog-ls flags, probed once via `--helpfull`. Config
+--- flags are root-dependent, so they are assembled in `M.ls_cmd`.
+local caps_cache
+local function caps()
+  if caps_cache then return caps_cache end
 
   local exe = 'verible-verilog-ls'
-  local cmd = { exe }
-  if vim.fn.executable(exe) == 0 then
-    base_cmd_cache = cmd
-    return vim.deepcopy(cmd)
+  local c = { exe = exe }
+  if vim.fn.executable(exe) == 1 then
+    local help = ''
+    local ok, res = pcall(function() return vim.system({ exe, '--helpfull' }, { text = true }):wait(2000) end)
+    if ok and res then help = (res.stdout or '') .. (res.stderr or '') end
+    for _, flag in ipairs { 'rules_config_search', 'lsp_enable_hover', 'waiver_files', 'flagfile' } do
+      c[flag] = help:find('%-%-' .. flag) ~= nil
+    end
   end
 
-  local help = ''
-  local ok, res = pcall(function() return vim.system({ exe, '--helpfull' }, { text = true }):wait(2000) end)
-  if ok and res then help = (res.stdout or '') .. (res.stderr or '') end
+  caps_cache = c
+  return c
+end
 
-  if help:find '%-%-rules_config_search' then table.insert(cmd, '--rules_config_search') end
-  if help:find '%-%-rules[%s=]' or help:find '%-%-rules\n' then table.insert(cmd, '--rules=' .. M.rules_string()) end
-  if help:find '%-%-lsp_enable_hover' then table.insert(cmd, '--lsp_enable_hover') end
-
-  base_cmd_cache = cmd
-  return vim.deepcopy(cmd)
+---@return string[] cmd
+local function base_cmd()
+  local c = caps()
+  local cmd = { c.exe }
+  if c.lsp_enable_hover then table.insert(cmd, '--lsp_enable_hover') end
+  return cmd
 end
 
 --- `--file_list_path` for `root`'s filelist.
@@ -369,11 +420,16 @@ function M.project_flags(root)
   return flags
 end
 
---- Full verible-verilog-ls command for `root`.
+--- Full verible-verilog-ls command for `root`: discovered lint/waiver/format
+--- config, then the generated filelist.
 ---@param root string|nil project root, e.g. from `M.project_root()`
 ---@return string[] cmd
 function M.ls_cmd(root)
+  local c = caps()
   local cmd = base_cmd()
+  if c.rules_config_search then vim.list_extend(cmd, M.rules_flags(root)) end
+  if c.waiver_files then vim.list_extend(cmd, M.waiver_flags(root)) end
+  if c.flagfile then vim.list_extend(cmd, M.format_flags(root)) end
   vim.list_extend(cmd, M.filelist_flags(root))
   return cmd
 end
@@ -454,17 +510,29 @@ function M.index_pick()
   end)
 end
 
---- Write `.rules.verible_lint` into the project root.
+--- Scaffold a `.rules.verible_lint` stub in the project root. Never overwrites:
+--- rules are the project's to own, not this module's.
 ---@param root string|nil
 function M.write_rules_config(root)
   root = root or M.project_root()
-  local path = vim.fs.joinpath(root, '.rules.verible_lint')
-  local ok, err = pcall(vim.fn.writefile, M.rules, path)
+  local path = vim.fs.joinpath(root, M.rules_basename)
+  if vim.fn.filereadable(path) == 1 then
+    vim.notify('verible: ' .. path .. ' already exists -- not overwriting', vim.log.levels.WARN)
+    return
+  end
+  local stub = {
+    '# verible lint rules: `+rule`, `-rule`, `+rule=param:value;param2:value2`.',
+    '# A DELTA on the `default` ruleset -- a default-on rule stays on unless',
+    '# disabled with an explicit `-`. See `verible-verilog-lint --help_rules=all`.',
+    '# The nearest file wins and REPLACES the one above it; it does not merge.',
+    '',
+  }
+  local ok, err = pcall(vim.fn.writefile, stub, path)
   if not ok then
     vim.notify('verible: could not write ' .. path .. ' -- ' .. tostring(err), vim.log.levels.ERROR)
     return
   end
-  vim.notify('verible: wrote ' .. path .. ' (' .. #M.rules .. ' rules)')
+  vim.notify('verible: scaffolded ' .. path)
 end
 
 -- ============================================================

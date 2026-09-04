@@ -948,8 +948,9 @@ do
       systemverilog = { 'verible' },
     },
     formatters = {
-      -- Keep the formatter's wrap width in step with the line-length lint rule.
-      verible = { prepend_args = { '--column_limit=' .. verilog_index.column_limit } },
+      -- Settings come from the nearest .verible-verilog-format.flags; a function
+      -- so switching projects re-resolves it.
+      verible = { prepend_args = function(_, ctx) return verilog_index.format_flags(ctx and ctx.filename) end },
     },
   }
 
@@ -958,12 +959,13 @@ do
   vim.pack.add { gh 'mfussenegger/nvim-lint' }
   local lint = require 'lint'
 
-  -- Create custom verible linter. Rule set comes from verilog_index so the LS,
-  -- this CLI pass and :VeribleLintProject all agree.
+  -- Create custom verible linter. Rules/waivers are discovered per file by
+  -- verilog_index, so the LS, this CLI pass and :VeribleLintProject all agree.
+  -- `args` is a function so it re-resolves instead of freezing the startup cwd.
   lint.linters.verible = {
     cmd = 'verible-verilog-lint',
     stdin = false,
-    args = verilog_index.lint_args(),
+    args = function() return verilog_index.lint_args(vim.api.nvim_buf_get_name(0)) end,
     stream = 'both', -- lint violations go to stdout, syntax errors to stderr
     ignore_exitcode = true, -- non-zero simply means "violations found"
     parser = function(output)
