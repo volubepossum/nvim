@@ -1203,4 +1203,12 @@ vim.g.vimtex_compiler_latexmk = {
 vim.pack.add { gh 'lervag/vimtex' }
 
 -- Use zathura as pdf viewer
-vim.cmd("autocmd BufEnter *.pdf !zathura '%'")
+vim.api.nvim_create_autocmd("BufEnter", {
+  pattern = "*.pdf",
+  callback = function()
+    vim.fn.jobstart({ "zathura", vim.fn.expand("%:p") }, {
+      detach = true,
+    })
+    vim.cmd("bdelete!")
+  end,
+})
