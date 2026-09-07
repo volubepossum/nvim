@@ -475,7 +475,7 @@ do
     highlight_groups = {
       -- Comments in the muted grey rather than the default subtle blue-grey,
       -- and italic so they recede from the code.
-      Comment = { fg = 'muted', italic = true },
+      Comment = { fg = 'leaf', italic = true },
       -- Make the cursorline and the current-line number a little more obvious.
       CursorLine = { bg = 'overlay' },
       CursorLineNr = { fg = 'gold', bold = true },
