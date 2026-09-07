@@ -813,7 +813,7 @@ do
   local servers = {
     -- clangd = {},
     gopls = {},
-    pyrefly = {},
+    pyrefly = {root_markers = {".git", ".venv"}},
     -- rust_analyzer = {},
     -- See `lua/custom/plugins/verilog_index.lua`.
     verible = {
