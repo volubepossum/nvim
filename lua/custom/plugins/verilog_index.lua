@@ -1,4 +1,5 @@
--- Verilog/SystemVerilog project indexing for verible-verilog-ls.
+-- Verilog/SystemVerilog project tooling: verible-verilog-ls indexing, plus the
+-- duty split between verible and slang-server (see "LSP duty split" below).
 --
 -- Generates <root>/verible.filelist from <root>/build/flists, then restarts
 -- the server.
@@ -370,6 +371,149 @@ local function filelist_files(root)
 end
 
 -- ============================================================
+-- LSP duty split: verible + slang-server
+-- ============================================================
+--
+-- Both servers implement most of the same methods, so each is trimmed to the
+-- half it does better and nothing else: no stacked hovers, no two sets of
+-- diagnostics, no "2 definitions found" picker on every `grd`.
+--
+-- The rule: a method both servers implement stays with verible, which is already
+-- wired to verible.filelist and to the project's lint config. slang only gets
+-- what verible cannot do at all.
+--
+-- Measured, not assumed -- both columns are the servers' own `initialize`
+-- replies (verible v0.0-4023, slang-server 0.2.10):
+--
+--   feature         verible                slang-server                   owner
+--   completion      -- (no capability)     expressions, modules,          slang
+--                                          interfaces, functions, macros,
+--                                          hierarchical refs, struct members
+--   hover           symbol kind + type     kind, lexical scope, resolved  slang
+--                                          type, bitwidth, constant value,
+--                                          doc comments, macro usage
+--   inlay hints     --                     port types, wildcard ports,    slang
+--                                          positional args
+--   call hierarchy  --                     driver/load cone tracing       slang
+--   workspace syms  --                     yes (makes `gW` work at last)  slang
+--   document links  --                     yes (nvim has no consumer yet) slang
+--   definition      yes                    yes                            verible
+--   references      yes                    yes (expensive on big repos)   verible
+--   rename          yes                    yes                            verible
+--   doc symbols     yes                    yes                            verible
+--   doc highlight   yes                    yes                            verible
+--   code actions    lint fixes             slang.addDefine quick fix      verible
+--   diagnostics     lint rules             slang elaboration (push only)  verible
+--   formatting      yes                    -- (not implemented)           verible
+--   signature help  --                     -- (neither implements it)     --
+--
+-- Code actions are the rule's one casualty: both implement the method, so
+-- verible keeps it and slang's "add `-D<name>` for this undefined macro" quick
+-- fix is dropped with it. Add `codeActionProvider` to `M.slang_keep` to get it
+-- back -- the two sets do not overlap, so `gra` would just list both.
+--
+-- Diagnostics are the one judgement call: slang's are elaboration-accurate and
+-- catch what verible cannot see, but they would land on top of the
+-- `.rules.verible_lint` diagnostics that already arrive twice (from the LS and
+-- from the nvim-lint CLI pass). Flip `M.slang_diagnostics` to hand diagnostics
+-- to slang instead.
+--
+-- Semantic tokens and formatting are on slang's roadmap; when they land, add
+-- semantic tokens to `M.slang_keep` and leave formatting out (verible formats).
+--
+-- Until the `slang-server` mason package is on PATH this is all inert and
+-- verible keeps every method, hover included.
+
+--- Mason package `slang-server` installs this onto PATH.
+M.slang_exe = 'slang-server'
+
+--- Let slang-server publish diagnostics too. Off: verible owns diagnostics.
+M.slang_diagnostics = false
+
+--- The only server capabilities slang-server keeps. Every other `*Provider` is
+--- dropped on attach, so verible answers it alone.
+M.slang_keep = {
+  completionProvider = true,
+  hoverProvider = true,
+  inlayHintProvider = true,
+  callHierarchyProvider = true,
+  workspaceSymbolProvider = true,
+  documentLinkProvider = true,
+  -- Neither server implements signature help today; kept so blink's signature
+  -- window lights up by itself if slang ever adds it.
+  signatureHelpProvider = true,
+  -- Not a request nvim races on; slang's own commands go through it.
+  executeCommandProvider = true,
+}
+
+--- slang's own config file, relative to the project root.
+M.slang_config_subpath = '.slang/server.json'
+
+---@return boolean
+function M.slang_available() return vim.fn.executable(M.slang_exe) == 1 end
+
+--- slang-server: completion, hover, inlay hints, cone tracing. Nothing else.
+--- Merged onto nvim-lspconfig's `lsp/slang_server.lua`.
+---@return vim.lsp.Config
+function M.slang_config()
+  return {
+    root_dir = function(bufnr, on_dir)
+      -- Not installed yet (mason may still be fetching it): never attach, so
+      -- nvim does not report a missing executable on every verilog buffer.
+      if not M.slang_available() then return end
+      local start = vim.api.nvim_buf_get_name(bufnr)
+      if start == '' then start = vim.uv.cwd() end
+      -- slang's own marker first, else the root verible uses, so the two
+      -- servers always agree on where the project starts.
+      on_dir(vim.fs.root(start, '.slang') or M.project_root(start))
+    end,
+    on_init = function(client)
+      local caps = client.server_capabilities
+      if not caps then return end
+      for name in pairs(caps) do
+        if name:match 'Provider$' and not M.slang_keep[name] then caps[name] = nil end
+      end
+    end,
+    handlers = M.slang_diagnostics and {} or {
+      -- Push diagnostics ignore server_capabilities, so swallow them here.
+      ['textDocument/publishDiagnostics'] = function() end,
+    },
+  }
+end
+
+--- Scaffold `<root>/.slang/server.json`. Never overwrites: slang flags are the
+--- project's to own, not this module's.
+---@param root string|nil
+function M.write_slang_config(root)
+  root = root or M.project_root()
+  if not root then
+    vim.notify('slang: could not determine a project root', vim.log.levels.ERROR)
+    return
+  end
+
+  local path = vim.fs.joinpath(root, M.slang_config_subpath)
+  if vim.fn.filereadable(path) == 1 then
+    vim.notify('slang: ' .. path .. ' already exists -- not overwriting', vim.log.levels.WARN)
+    return
+  end
+
+  -- slang command files take the same file / +incdir+ / +define+ lines a verible
+  -- filelist does, so :VeribleIndex output can feed both. If slang rejects it,
+  -- drop the "flags" line and set include paths there instead.
+  local stub = { '{', '  "index": [{ "dirs": ["."], "excludeDirs": ["build", ".git", ".slang"] }],' }
+  if vim.fn.filereadable(vim.fs.joinpath(root, OUTPUT)) == 1 then table.insert(stub, ('  "flags": "-f %s",'):format(OUTPUT)) end
+  vim.list_extend(stub, { '  "hovers": { "docCommentFormat": "markdown" }', '}', '' })
+
+  vim.fn.mkdir(vim.fs.dirname(path), 'p')
+  local ok, err = pcall(vim.fn.writefile, stub, path)
+  if not ok then
+    vim.notify('slang: could not write ' .. path .. ' -- ' .. tostring(err), vim.log.levels.ERROR)
+    return
+  end
+  vim.notify('slang: scaffolded ' .. relative(path, root) .. ' -- reload it with :LspRestart slang_server')
+end
+
+-- ============================================================
 -- verible-verilog-ls command/config + restart
 -- ============================================================
 
@@ -398,7 +542,11 @@ end
 local function base_cmd()
   local c = caps()
   local cmd = { c.exe }
-  if c.lsp_enable_hover then table.insert(cmd, '--lsp_enable_hover') end
+  -- Without the flag verible answers `initialize` with hoverProvider = false,
+  -- so leaving it off is the whole verible half of the duty split: slang-server
+  -- becomes the only client anyone asks for hover. :VeribleRestart picks this up
+  -- if slang-server was installed mid-session.
+  if c.lsp_enable_hover and not M.slang_available() then table.insert(cmd, '--lsp_enable_hover') end
   return cmd
 end
 
@@ -610,8 +758,9 @@ function M.lint_project()
       local lines = vim.split((res.stdout or '') .. '\n' .. (res.stderr or ''), '\n', { plain = true })
       local items = {}
       for _, line in ipairs(lines) do
-        -- file:line:col: message
-        local f, lnum, col, msg = line:match '^(.-):(%d+):(%d+):%s*(.*)$'
+        -- file:line:col: message, or file:line:col-col: message for the style
+        -- rules that report a range (most of them)
+        local f, lnum, col, msg = line:match '^(.-):(%d+):(%d+)%-?%d*:%s*(.*)$'
         if f then table.insert(items, { filename = f, lnum = tonumber(lnum), col = tonumber(col), text = msg, type = 'W' }) end
       end
       vim.fn.setqflist({}, ' ', { title = 'verible-verilog-lint', items = items })
@@ -682,6 +831,8 @@ vim.api.nvim_create_user_command('VeribleRestart', function()
 end, { desc = 'Restart the verible language server' })
 
 vim.api.nvim_create_user_command('VeribleWriteRulesConfig', function() M.write_rules_config() end, { desc = 'Write .rules.verible_lint into the project root' })
+
+vim.api.nvim_create_user_command('SlangWriteConfig', function() M.write_slang_config() end, { desc = 'Write .slang/server.json into the project root' })
 
 vim.api.nvim_create_user_command('VeribleProject', function(cmd) M.project(cmd.args ~= '' and cmd.args or 'file-deps') end, {
   nargs = '?',

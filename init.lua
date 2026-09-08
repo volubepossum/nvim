@@ -805,6 +805,19 @@ do
     end,
   })
 
+  vim.pack.add {
+    gh 'neovim/nvim-lspconfig',
+    gh 'mason-org/mason.nvim',
+    gh 'mason-org/mason-lspconfig.nvim',
+    gh 'WhoIsSethDaniel/mason-tool-installer.nvim',
+  }
+
+  -- Automatically install LSPs and related tools to stdpath for Neovim.
+  -- Set up before the server table below, because it puts mason's bin directory
+  -- on PATH and that table probes PATH (verible asks whether slang-server is
+  -- installed before deciding who owns hover).
+  require('mason').setup {}
+
   -- Enable the following language servers
   --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
   --  See `:help lsp-config` for information about keys and how to configure
@@ -815,12 +828,16 @@ do
     gopls = {},
     pyrefly = {root_markers = {".git", ".venv"}},
     -- rust_analyzer = {},
-    -- See `lua/custom/plugins/verilog_index.lua`.
+    -- Verilog/SystemVerilog is served by two servers with their duties split so
+    -- they never answer the same request. See `lua/custom/plugins/verilog_index.lua`.
     verible = {
       -- cmd: --rules_config_search, --rules, --file_list_path (static; :VeribleRestart refreshes).
+      -- Hover is left to slang-server, so --lsp_enable_hover is dropped when it is installed.
       cmd = verilog_index.ls_cmd(verilog_index.project_root()),
       root_dir = function(bufnr, on_dir) on_dir(verilog_index.project_root(vim.api.nvim_buf_get_name(bufnr))) end,
     },
+    -- Completion, hover, inlay hints and cone tracing only; verible keeps the rest.
+    slang_server = verilog_index.slang_config(),
     texlab = {},
     --
     -- Some languages (like typescript) have entire language plugins that can be useful:
@@ -865,16 +882,6 @@ do
       },
     },
   }
-
-  vim.pack.add {
-    gh 'neovim/nvim-lspconfig',
-    gh 'mason-org/mason.nvim',
-    gh 'mason-org/mason-lspconfig.nvim',
-    gh 'WhoIsSethDaniel/mason-tool-installer.nvim',
-  }
-
-  -- Automatically install LSPs and related tools to stdpath for Neovim
-  require('mason').setup {}
 
   vim.pack.add {
     gh 'jglasovic/venv-lsp.nvim'
@@ -961,33 +968,46 @@ do
 
   -- Create custom verible linter. Rules/waivers are discovered per file by
   -- verilog_index, so the LS, this CLI pass and :VeribleLintProject all agree.
-  -- `args` is a function so it re-resolves instead of freezing the startup cwd.
-  lint.linters.verible = {
-    cmd = 'verible-verilog-lint',
-    stdin = false,
-    args = function() return verilog_index.lint_args(vim.api.nvim_buf_get_name(0)) end,
-    stream = 'both', -- lint violations go to stdout, syntax errors to stderr
-    ignore_exitcode = true, -- non-zero simply means "violations found"
-    parser = function(output)
-      local diagnostics = {}
-      -- verible reports `file:line:col: message [rule-name]`
-      for line in vim.gsplit(output, '\n') do
-        local lnum, col, message = line:match '^.-:(%d+):(%d+):%s*(.*)$'
-        if lnum and message then
-          local code = message:match '%[(.-)%]%s*$'
-          table.insert(diagnostics, {
-            lnum = tonumber(lnum) - 1,
-            col = math.max(tonumber(col) - 1, 0),
-            message = message,
-            code = code,
-            source = 'verible',
-            severity = vim.diagnostic.severity.WARN,
-          })
+  --
+  -- The whole linter is a function, not just `args`, so the flags re-resolve on
+  -- every run instead of freezing the startup cwd. `args` itself must stay a
+  -- plain table: nvim-lint does `vim.tbl_map(eval, linter.args)`, so only the
+  -- *elements* of args may be functions. A function in args' place throws
+  -- "expected table, got function" on every verilog buffer and the pass never
+  -- runs at all. nvim-lint re-invokes this on each try_lint (lint.lua:83).
+  lint.linters.verible = function()
+    return {
+      cmd = 'verible-verilog-lint',
+      stdin = false,
+      args = verilog_index.lint_args(vim.api.nvim_buf_get_name(0)),
+      stream = 'both', -- lint violations go to stdout, syntax errors to stderr
+      ignore_exitcode = true, -- non-zero simply means "violations found"
+      parser = function(output)
+        local diagnostics = {}
+        -- verible reports `file:line:col: message [rule-name]`, and
+        -- `file:line:col-col: ...` for the style rules that span a range --
+        -- which is most of them, so the end column has to be optional here.
+        for line in vim.gsplit(output, '\n') do
+          local lnum, col, message = line:match '^.-:(%d+):(%d+)%-?%d*:%s*(.*)$'
+          if lnum and message then
+            -- The rule name is the last bracketed group; a style rule prefixes
+            -- it with its own `[Style: ...]`, so exclude brackets from the match
+            -- or a lazy `.-` swallows both groups into one code.
+            local code = message:match '%[([^%[%]]-)%]%s*$'
+            table.insert(diagnostics, {
+              lnum = tonumber(lnum) - 1,
+              col = math.max(tonumber(col) - 1, 0),
+              message = message,
+              code = code,
+              source = 'verible',
+              severity = vim.diagnostic.severity.WARN,
+            })
+          end
         end
-      end
-      return diagnostics
-    end,
-  }
+        return diagnostics
+      end,
+    }
+  end
 
   lint.linters_by_ft = {
     verilog = { 'verible' },
@@ -1056,13 +1076,59 @@ do
     },
 
     completion = {
-      -- By default, you may press `<c-space>` to show the documentation.
-      -- Optionally, set `auto_show = true` to show the documentation after a delay.
-      documentation = { auto_show = false, auto_show_delay_ms = 500 },
+      -- Auto-shown because the verilog sources put the good part in here: slang's
+      -- resolved type / bitwidth / constant value, and the declaration line that
+      -- the ctags source recovers. `<c-space>` still toggles it manually.
+      documentation = { auto_show = true, auto_show_delay_ms = 500 },
     },
 
     sources = {
       default = { 'lsp', 'path', 'snippets' },
+
+      -- Verilog/SystemVerilog get a third source: the ctags index that
+      -- :VeribleCtags builds over verible.filelist, which reaches files no
+      -- compilation currently touches. verible has no completionProvider at all
+      -- and slang-server only completes what it elaborates, so this is the only
+      -- thing that knows about the rest of the project.
+      per_filetype = {
+        verilog = { 'ctags', inherit_defaults = true },
+        systemverilog = { 'ctags', inherit_defaults = true },
+      },
+
+      providers = {
+        -- See `lua/custom/plugins/blink_ctags.lua`.
+        ctags = {
+          name = 'ctags',
+          module = 'custom.plugins.blink_ctags',
+          -- Under `lsp` (0), over the `buffer` fallback (-3).
+          score_offset = -2,
+          min_keyword_length = 2,
+          opts = { max_items = 200 },
+        },
+
+        -- `buffer` is what `lsp` falls back to when a server returns nothing,
+        -- which for verible is every time. Its default scan is windows-only;
+        -- widen it to every loaded buffer of the same filetype, so files that
+        -- are open but not on screen still contribute words.
+        buffer = {
+          opts = {
+            get_bufnrs = function()
+              local filetype = vim.bo.filetype
+              local visible = {}
+              for _, win in ipairs(vim.api.nvim_list_wins()) do
+                visible[vim.api.nvim_win_get_buf(win)] = true
+              end
+              return vim
+                .iter(vim.api.nvim_list_bufs())
+                :filter(function(buf)
+                  if not vim.api.nvim_buf_is_loaded(buf) or vim.bo[buf].buftype ~= '' then return false end
+                  return visible[buf] or vim.bo[buf].filetype == filetype
+                end)
+                :totable()
+            end,
+          },
+        },
+      },
     },
 
     snippets = { preset = 'luasnip' },
@@ -1076,7 +1142,11 @@ do
     -- See `:help blink-cmp-config-fuzzy` for more information
     fuzzy = { implementation = 'lua' },
 
-    -- Shows a signature help window while you type arguments for a function
+    -- Shows a signature help window while you type arguments for a function.
+    -- Verilog gets nothing from it today: neither verible nor slang-server
+    -- advertises signatureHelp. `M.slang_keep` in verilog_index.lua whitelists
+    -- it anyway, so this lights up by itself if slang ever ships it. Until then
+    -- a task/function argument list arrives as ctags item documentation.
     signature = { enabled = true },
   }
 end
