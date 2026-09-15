@@ -835,6 +835,14 @@ do
       -- Hover is left to slang-server, so --lsp_enable_hover is dropped when it is installed.
       cmd = verilog_index.ls_cmd(verilog_index.project_root()),
       root_dir = function(bufnr, on_dir) on_dir(verilog_index.project_root(vim.api.nvim_buf_get_name(bufnr))) end,
+      on_init = function(client)
+        -- verible-verilog-ls advertises `diagnosticProvider` (pull) on top of its default
+        -- `--push_diagnostic_notifications=true` (push). Neovim auto-enables pull on attach
+        -- whenever a server supports `textDocument/diagnostic`, and pull lands in a separate
+        -- diagnostic namespace from push (see vim.lsp.diagnostic.get_namespace's `is_pull`
+        -- arg) -- same violation, two entries. Strip pull so push stays the only path.
+        if client.server_capabilities then client.server_capabilities.diagnosticProvider = nil end
+      end,
     },
     -- Completion, hover, inlay hints and cone tracing only; verible keeps the rest.
     slang_server = verilog_index.slang_config(),
@@ -966,53 +974,14 @@ do
   vim.pack.add { gh 'mfussenegger/nvim-lint' }
   local lint = require 'lint'
 
-  -- Create custom verible linter. Rules/waivers are discovered per file by
-  -- verilog_index, so the LS, this CLI pass and :VeribleLintProject all agree.
-  --
-  -- The whole linter is a function, not just `args`, so the flags re-resolve on
-  -- every run instead of freezing the startup cwd. `args` itself must stay a
-  -- plain table: nvim-lint does `vim.tbl_map(eval, linter.args)`, so only the
-  -- *elements* of args may be functions. A function in args' place throws
-  -- "expected table, got function" on every verilog buffer and the pass never
-  -- runs at all. nvim-lint re-invokes this on each try_lint (lint.lua:83).
-  lint.linters.verible = function()
-    return {
-      cmd = 'verible-verilog-lint',
-      stdin = false,
-      args = verilog_index.lint_args(vim.api.nvim_buf_get_name(0)),
-      stream = 'both', -- lint violations go to stdout, syntax errors to stderr
-      ignore_exitcode = true, -- non-zero simply means "violations found"
-      parser = function(output)
-        local diagnostics = {}
-        -- verible reports `file:line:col: message [rule-name]`, and
-        -- `file:line:col-col: ...` for the style rules that span a range --
-        -- which is most of them, so the end column has to be optional here.
-        for line in vim.gsplit(output, '\n') do
-          local lnum, col, message = line:match '^.-:(%d+):(%d+)%-?%d*:%s*(.*)$'
-          if lnum and message then
-            -- The rule name is the last bracketed group; a style rule prefixes
-            -- it with its own `[Style: ...]`, so exclude brackets from the match
-            -- or a lazy `.-` swallows both groups into one code.
-            local code = message:match '%[([^%[%]]-)%]%s*$'
-            table.insert(diagnostics, {
-              lnum = tonumber(lnum) - 1,
-              col = math.max(tonumber(col) - 1, 0),
-              message = message,
-              code = code,
-              source = 'verible',
-              severity = vim.diagnostic.severity.WARN,
-            })
-          end
-        end
-        return diagnostics
-      end,
-    }
-  end
-
-  lint.linters_by_ft = {
-    verilog = { 'verible' },
-    systemverilog = { 'verible' },
-  }
+  -- No per-buffer nvim-lint linter for verilog/systemverilog: the `verible` LSP
+  -- client already owns live diagnostics duty (see the duty-split table in
+  -- verilog_index.lua), so a separate verible-verilog-lint CLI pass here would
+  -- just reproduce the same violations a second time on every
+  -- BufEnter/BufWritePost/InsertLeave. `:VeribleLintProject` (verilog_index.lua)
+  -- still covers an on-demand, whole-project quickfix batch via the same
+  -- verible-verilog-lint CLI + M.lint_args.
+  lint.linters_by_ft = lint.linters_by_ft or {}
 
   -- The linting autocmd lives in `kickstart.plugins.lint` -- don't register a
   -- second one here or every write would run the linters twice.

@@ -414,9 +414,11 @@ end
 --
 -- Diagnostics are the one judgement call: slang's are elaboration-accurate and
 -- catch what verible cannot see, but they would land on top of the
--- `.rules.verible_lint` diagnostics that already arrive twice (from the LS and
--- from the nvim-lint CLI pass). Flip `M.slang_diagnostics` to hand diagnostics
--- to slang instead.
+-- `.rules.verible_lint` diagnostics verible's own LSP client already reports
+-- (its `on_init` in init.lua strips `diagnosticProvider` so pull doesn't
+-- double up with its default push notifications, and nvim-lint runs no
+-- per-buffer verible CLI pass, so that's the one remaining source). Flip
+-- `M.slang_diagnostics` to hand diagnostics to slang instead.
 --
 -- Semantic tokens and formatting are on slang's roadmap; when they land, add
 -- semantic tokens to `M.slang_keep` and leave formatting out (verible formats).
