@@ -427,6 +427,7 @@ do
       { '<leader>s', group = '[S]earch', mode = { 'n', 'v' } },
       { '<leader>t', group = '[T]oggle' },
       { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
+      { '<leader>g', group = '[G]it', mode = { 'n', 'v' } },
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
       { 'zS', group = 'Fold [S]trategy' },
     },
@@ -439,10 +440,77 @@ do
     gh 'nvim-lua/plenary.nvim',
     gh 'sindrets/diffview.nvim',
   }
-  require('neogit').setup {}
+  require('diffview').setup {
+    enhanced_diff_hl = true, -- better highlighting of changed words in diffs
+    view = { merge_tool = { layout = 'diff3_mixed' } },
+  }
 
-  vim.keymap.set('n', '<leader>gs', '<cmd>Neogit<cr>', { desc = '[G]it [S]tatus' })
-  -- vim.keymap.set('n', '<leader>gb', '<cmd>Neogit<cr>', { desc = '[G]it [B]lame' })
+  require('neogit').setup {
+    graph_style = 'unicode', -- pretty commit graph in log views ('kitty' needs the kitty terminal)
+    process_spinner = true,
+    integrations = { diffview = true, telescope = true },
+    -- { closed, open } fold markers; nerd font chevrons right/down
+    signs = {
+      section = { '\u{f105}', '\u{f107}' },
+      item = { '\u{f105}', '\u{f107}' },
+      hunk = { '', '' },
+    },
+    commit_editor = { kind = 'tab', show_staged_diff = true, staged_diff_split_kind = 'vsplit' },
+  }
+
+  local neogit = require 'neogit'
+  vim.keymap.set('n', '<leader>gg', '<cmd>Neogit<cr>', { desc = '[G]it status' })
+  vim.keymap.set('n', '<leader>gc', '<cmd>Neogit commit<cr>', { desc = '[G]it [C]ommit' })
+  vim.keymap.set('n', '<leader>gp', '<cmd>Neogit pull<cr>', { desc = '[G]it [P]ull' })
+  vim.keymap.set('n', '<leader>gP', '<cmd>Neogit push<cr>', { desc = '[G]it [P]ush' })
+  vim.keymap.set('n', '<leader>gl', neogit.action('log', 'log_current', { '--graph', '--decorate' }), { desc = '[G]it [L]og graph' })
+  vim.keymap.set('n', '<leader>gL', neogit.action('log', 'log_all_branches', { '--graph', '--decorate' }), { desc = '[G]it [L]og graph (all branches)' })
+  vim.keymap.set('n', '<leader>gD', '<cmd>DiffviewOpen<cr>', { desc = '[G]it [D]iffview (all changes)' })
+  vim.keymap.set('n', '<leader>gq', '<cmd>DiffviewClose<cr>', { desc = '[G]it diffview [Q]uit' })
+
+  -- Jump between changes: hunks in normal buffers, native diff jumps in diff windows
+  for key, dir in pairs { [']c'] = 'next', ['[c'] = 'prev' } do
+    vim.keymap.set('n', key, function()
+      if vim.wo.diff then
+        vim.cmd.normal { key, bang = true }
+      else
+        require('gitsigns').nav_hunk(dir)
+      end
+    end, { desc = 'Jump to ' .. dir .. ' git [c]hange' })
+  end
+
+  -- File-specific git actions on the current buffer (gitsigns + diffview)
+  local gitsigns = require 'gitsigns'
+  vim.keymap.set('n', '<leader>gb', gitsigns.blame, { desc = '[G]it [B]lame file' })
+  vim.keymap.set('n', '<leader>gB', function() gitsigns.blame_line { full = true } end, { desc = '[G]it [B]lame line' })
+  vim.keymap.set('n', '<leader>ga', gitsigns.stage_buffer, { desc = '[G]it [A]dd file' })
+  vim.keymap.set('v', '<leader>ga', function() gitsigns.stage_hunk { vim.fn.line '.', vim.fn.line 'v' } end, { desc = '[G]it [A]dd selection' })
+  vim.keymap.set('n', '<leader>gu', gitsigns.reset_buffer_index, { desc = '[G]it [U]nstage file' })
+  vim.keymap.set('n', '<leader>gR', gitsigns.reset_buffer, { desc = '[G]it [R]eset file (discard changes)' })
+  vim.keymap.set('n', '<leader>gd', gitsigns.diffthis, { desc = '[G]it [D]iff file against index' })
+  vim.keymap.set('n', '<leader>gh', '<cmd>DiffviewFileHistory %<cr>', { desc = '[G]it file [H]istory' })
+
+  -- Run a neogit git action asynchronously, then reload buffers and report
+  local function neogit_run(fn, msg)
+    require('neogit.lib.async').void(function()
+      fn(require 'neogit.lib.git')
+      vim.schedule(function()
+        vim.cmd.checktime()
+        vim.notify(msg)
+      end)
+    end)()
+  end
+  vim.keymap.set('n', '<leader>gA', function()
+    neogit_run(function(git) git.status.stage_all() end, 'Staged all changes')
+  end, { desc = '[G]it [A]dd all' })
+  vim.keymap.set('n', '<leader>gs', function()
+    local file = vim.fn.expand '%:p'
+    if vim.bo.modified then vim.cmd.write() end
+    neogit_run(function(git) git.stash.push({}, { file }) end, 'Stashed ' .. vim.fn.fnamemodify(file, ':t'))
+  end, { desc = '[G]it [s]tash file' })
+  vim.keymap.set('n', '<leader>gS', function()
+    neogit_run(function(git) git.stash.stash_all {} end, 'Stashed all changes')
+  end, { desc = '[G]it [S]tash all' })
 
   -- [[ Colorscheme ]]
   -- You can easily change to a different colorscheme.

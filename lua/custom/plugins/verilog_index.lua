@@ -402,15 +402,15 @@ end
 --   rename          yes                    yes                            verible
 --   doc symbols     yes                    yes                            verible
 --   doc highlight   yes                    yes                            verible
---   code actions    lint fixes             slang.addDefine quick fix      verible
+--   code actions    lint fixes             slang.addDefine quick fix      both
 --   diagnostics     lint rules             slang elaboration (push only)  verible
 --   formatting      yes                    -- (not implemented)           verible
 --   signature help  --                     -- (neither implements it)     --
 --
--- Code actions are the rule's one casualty: both implement the method, so
--- verible keeps it and slang's "add `-D<name>` for this undefined macro" quick
--- fix is dropped with it. Add `codeActionProvider` to `M.slang_keep` to get it
--- back -- the two sets do not overlap, so `gra` would just list both.
+-- Code actions are the one method both implement, but their sets don't
+-- overlap -- verible's are lint-rule autofixes, slang's is the "add
+-- `-D<name>`" undefined-macro quick fix -- so both stay in M.slang_keep and
+-- `gra` lists whichever apply.
 --
 -- Diagnostics are the one judgement call: slang's are elaboration-accurate and
 -- catch what verible cannot see, but they would land on top of the
@@ -441,6 +441,9 @@ M.slang_keep = {
   callHierarchyProvider = true,
   workspaceSymbolProvider = true,
   documentLinkProvider = true,
+  -- Doesn't overlap with verible's lint-fix code actions (see the table
+  -- above), so both stay live and `gra` merges whichever apply.
+  codeActionProvider = true,
   -- Neither server implements signature help today; kept so blink's signature
   -- window lights up by itself if slang ever adds it.
   signatureHelpProvider = true,
