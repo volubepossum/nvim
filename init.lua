@@ -409,6 +409,13 @@ utils.is_plugin_installed = function(name)
         ) == 1
 end
 
+vim.g.molten_auto_open_html_in_browser = true
+vim.g.molten_open_cmd = "xdg-open"
+-- Shortcut: open current cell's HTML output in browser
+vim.keymap.set("n", "<leader>jq", "<cmd>MoltenOpenInBrowser<CR>", {
+    desc = "Open Molten output in browser",
+    silent = true,
+})
 require("image").setup({
   backend = "kitty", -- or "ueberzug" or "sixel"
   kitty_method = "normal",
@@ -444,7 +451,7 @@ require("image").setup({
       filetypes = { "typst" },
     },
     html = {
-      enabled = false,
+      enabled = true,
     },
     css = {
       enabled = false,
