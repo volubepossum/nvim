@@ -512,6 +512,7 @@ do
       { '<leader>t', group = '[T]oggle' },
       { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } }, -- Enable gitsigns recommended keymaps first
       { '<leader>g', group = '[G]it', mode = { 'n', 'v' } },
+      { 's' , group = '[S]urround'},
       { 'gr', group = 'LSP Actions', mode = { 'n' } },
       { 'zS', group = 'Fold [S]trategy' },
     },
@@ -691,6 +692,7 @@ do
   -- - sr)'  - [S]urround [R]eplace [)] [']
   require('mini.surround').setup()
 
+  vim.opt.timeoutlen = 1000
   -- Auto match brackets and quotations
   -- opening bracket/quotation adds matching closing bracket/quotation
   -- other features too => https://nvim-mini.org/mini.nvim/readmes/mini-pairs
@@ -1286,7 +1288,7 @@ do
   vim.pack.add { { src = gh 'nvim-treesitter/nvim-treesitter', version = 'main' } }
 
   -- Ensure basic parsers are installed
-  local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
+  local parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc', 'verilog' }
   require('nvim-treesitter').install(parsers)
 
   ---@param buf integer
