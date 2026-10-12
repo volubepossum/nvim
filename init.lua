@@ -381,12 +381,34 @@ end
 local function gh(repo) return 'https://github.com/' .. repo end
 
 vim.pack.add({
-  { src = "https://github.com/jeryldev/molten-nvim", name = "molten.nvim" },
-  { src = "https://github.com/jeryldev/image.nvim" },
-  { src = "https://github.com/jeryldev/pyworks.nvim" },
+  { src = gh "jeryldev/molten-nvim" },
+  { src = gh "jeryldev/image.nvim" },
+  { src = gh "jeryldev/pyworks.nvim" },
 })
+
+vim.cmd.packadd("molten-nvim")
 vim.cmd.packadd("image.nvim")
-vim.cmd.packadd("molten.nvim")
+vim.cmd.packadd("pyworks.nvim")
+local utils = require("pyworks.utils")
+local original = utils.is_plugin_installed
+
+utils.is_plugin_installed = function(name)
+    if original(name) then
+        return true
+    end
+
+    local paths = {
+        ["molten-nvim"] = "pack/core/opt/molten-nvim",
+        ["image.nvim"] = "pack/core/opt/image.nvim",
+    }
+
+    local path = paths[name]
+    return path ~= nil
+        and vim.fn.isdirectory(
+            vim.fn.stdpath("data") .. "/site/" .. path
+        ) == 1
+end
+
 require("image").setup({
   backend = "kitty", -- or "ueberzug" or "sixel"
   kitty_method = "normal",
